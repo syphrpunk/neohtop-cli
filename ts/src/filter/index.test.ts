@@ -42,10 +42,40 @@ describe('filterProcesses', () => {
     expect(filterProcesses(procs, 'CHROME').map((p) => p.pid)).toEqual([100])
   })
 
-  test('invalid regex falls back to substring', () => {
+  test('invalid regex falls back to escaped literal', () => {
     expect(filterProcesses(procs, '[chrome').length).toBe(0)
     const withBracket = [...procs, proc({ pid: 400, name: 'x', command: 'weird [chrome thing' })]
     expect(filterProcesses(withBracket, '[chrome').map((p) => p.pid)).toEqual([400])
+  })
+
+  test('bare word does not match inside longer words', () => {
+    const withBundle = [
+      ...procs,
+      proc({ pid: 500, name: 'powerd', command: '/System/powerd.bundle/powerd' }),
+      proc({ pid: 600, name: 'bun', command: '/opt/bun run dev' }),
+    ]
+    expect(filterProcesses(withBundle, 'bun').map((p) => p.pid)).toEqual([600])
+  })
+
+  test('bare word still matches path segments and word boundaries', () => {
+    const list = [
+      proc({ pid: 700, name: 'sh', command: '/bin/bun x' }),
+      proc({ pid: 701, name: 'sh', command: 'bunx thing' }),
+    ]
+    expect(filterProcesses(list, 'bun').map((p) => p.pid)).toEqual([700])
+  })
+
+  test('bare word with dot is literal (node.js does not match nodexjs)', () => {
+    const list = [
+      proc({ pid: 800, name: 'a', command: 'run node.js now' }),
+      proc({ pid: 801, name: 'b', command: 'run nodexjs now' }),
+    ]
+    expect(filterProcesses(list, 'node.js').map((p) => p.pid)).toEqual([800])
+  })
+
+  test('explicit regex keeps raw semantics', () => {
+    const withBundle = [...procs, proc({ pid: 500, name: 'powerd', command: '/x/powerd.bundle/y' })]
+    expect(filterProcesses(withBundle, 'bun.*le').map((p) => p.pid)).toEqual([500])
   })
 
   test('user filter', () => {

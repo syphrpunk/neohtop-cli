@@ -6,10 +6,30 @@ export const SORT_KEYS = ['cpu', 'memory', 'pid', 'name', 'runtime', 'user'] as 
 export type SortKey = (typeof SORT_KEYS)[number]
 
 /**
- * Regex filter (case-insensitive) against name, command, and PID — same
- * semantics as the Go TUI search. An invalid pattern falls back to a
- * literal substring match rather than erroring.
+ * Compile a filter query into a regex (case-insensitive).
+ *
+ * Bare words (no regex metacharacters) get word-boundary anchors so
+ * `bun` matches "bun run x" and "/bin/bun" but not "Engine.bundle".
+ * Patterns containing metacharacters are used as-is, matching the Go
+ * TUI search. An invalid pattern falls back to an escaped literal.
  */
+export function compileFilter(query: string): RegExp {
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const isBare = /^[\w. -]+$/.test(query)
+  if (isBare) {
+    // only anchor ends that sit against a word character ("\b\.log\b" would never match)
+    const lead = /^\w/.test(query) ? '\\b' : ''
+    const trail = /\w$/.test(query) ? '\\b' : ''
+    return new RegExp(`${lead}${escaped}${trail}`, 'i')
+  }
+  try {
+    return new RegExp(query, 'i')
+  } catch {
+    return new RegExp(escaped, 'i')
+  }
+}
+
+/** Filter against name, command, and PID — same fields as the Go TUI search. */
 export function filterProcesses(
   procs: ProcessInfo[],
   query?: string,
@@ -18,18 +38,8 @@ export function filterProcesses(
   let out = procs
   if (user) out = out.filter((p) => p.user === user)
   if (query) {
-    let matches: (p: ProcessInfo) => boolean
-    try {
-      const re = new RegExp(query, 'i')
-      matches = (p) => re.test(p.name) || re.test(p.command) || re.test(String(p.pid))
-    } catch {
-      const q = query.toLowerCase()
-      matches = (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.command.toLowerCase().includes(q) ||
-        String(p.pid).includes(q)
-    }
-    out = out.filter(matches)
+    const re = compileFilter(query)
+    out = out.filter((p) => re.test(p.name) || re.test(p.command) || re.test(String(p.pid)))
   }
   return out
 }

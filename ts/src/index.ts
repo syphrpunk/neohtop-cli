@@ -9,7 +9,12 @@ import { buildProcessTree } from './filter/tree.ts'
 import { Monitor, sleep, snapshot } from './monitor/index.ts'
 
 const listOptions = z.object({
-  filter: z.string().optional().describe('Regex matched against name, command, and PID'),
+  filter: z
+    .string()
+    .optional()
+    .describe(
+      'Match against name, command, and PID — bare words match whole words; regex metacharacters switch to full regex',
+    ),
   user: z.string().optional().describe('Only processes owned by this user'),
   sortBy: z.enum(SORT_KEYS).default('cpu').describe('Sort column'),
   order: z.enum(['asc', 'desc']).default('desc').describe('Sort direction'),

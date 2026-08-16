@@ -13,7 +13,7 @@ List processes with regex filtering and column sorting
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--filter` | `string` |  | Regex matched against name, command, and PID |
+| `--filter` | `string` |  | Match against name, command, and PID — bare words match whole words; regex metacharacters switch to full regex |
 | `--user` | `string` |  | Only processes owned by this user |
 | `--sortBy` | `string` | `cpu` | Sort column |
 | `--order` | `string` | `desc` | Sort direction |
