@@ -22,7 +22,7 @@ export interface ProcessInfo {
 
 export interface SystemStats {
   cpu_brand: string
-  /** per-core percentages (empty on macOS — needs mach APIs; use cpu_usage_total) */
+  /** per-core percentages */
   cpu_usage_per_core: number[]
   cpu_usage_total: number
   core_count: number
@@ -70,7 +70,7 @@ export interface RawProc {
 export interface PlatformSample {
   cpuBrand: string
   coreCount: number
-  /** Linux: raw tick counters per core; Monitor computes deltas */
+  /** raw tick counters per core (Linux /proc/stat, macOS os.cpus()); Monitor computes deltas */
   cpuPerCoreTicks?: CoreTicks[]
   memoryTotal: number
   memoryUsed: number

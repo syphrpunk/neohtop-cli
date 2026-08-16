@@ -2,9 +2,9 @@
 // (ps, sysctl, vm_stat, netstat, df) instead of libproc/mach CGo.
 
 import { execFileSync } from 'node:child_process'
-import { hostname, release } from 'node:os'
+import { cpus, hostname, release } from 'node:os'
 import { basename } from 'node:path'
-import type { PlatformSample, RawProc } from './types.ts'
+import type { CoreTicks, PlatformSample, RawProc } from './types.ts'
 
 function sh(cmd: string, args: string[]): string {
   return execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
@@ -105,6 +105,16 @@ function collectNet(): { rx: number; tx: number } {
   return { rx, tx }
 }
 
+// Bun's node:os polyfill surfaces real host_processor_info tick counters,
+// so per-core CPU% comes from os.cpus() deltas — no mach FFI needed.
+function collectCoreTicks(): CoreTicks[] {
+  return cpus().map((core) => {
+    const t = core.times
+    const total = t.user + t.nice + t.sys + t.idle + t.irq
+    return { busy: total - t.idle, total }
+  })
+}
+
 function collectDisk(): { total: number; used: number; free: number } {
   const line = sh('/bin/df', ['-k', '/']).split('\n')[1]
   const parts = line?.trim().split(/\s+/) ?? []
@@ -134,6 +144,7 @@ export function collect(): PlatformSample {
   return {
     cpuBrand: sysctl('machdep.cpu.brand_string'),
     coreCount: Number(sysctl('hw.ncpu')),
+    cpuPerCoreTicks: collectCoreTicks(),
     memoryTotal,
     memoryUsed: used,
     memoryFree: free,

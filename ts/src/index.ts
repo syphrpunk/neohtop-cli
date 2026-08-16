@@ -5,6 +5,7 @@
 import { Cli, z } from 'incur'
 import pkg from '../package.json' with { type: 'json' }
 import { SORT_KEYS, filterProcesses, sortProcesses } from './filter/index.ts'
+import { buildProcessTree } from './filter/tree.ts'
 import { Monitor, sleep, snapshot } from './monitor/index.ts'
 
 const listOptions = z.object({
@@ -84,6 +85,30 @@ Cli.create('neohtop', {
         processes: rows.map((p) => ({
           pid: p.pid,
           name: p.name,
+          cpu_usage: p.cpu_usage,
+          memory_bytes: p.memory_bytes,
+          user: p.user,
+        })),
+      }
+    },
+  })
+  .command('tree', {
+    description: 'Process tree (depth-first, PPID→PID) with rendering prefixes',
+    options: z.object({
+      filter: listOptions.shape.filter,
+      user: listOptions.shape.user,
+      sampleMs: listOptions.shape.sampleMs,
+    }),
+    async run(c) {
+      const { processes } = await snapshot(c.options.sampleMs)
+      const rows = buildProcessTree(filterProcesses(processes, c.options.filter, c.options.user))
+      return {
+        count: rows.length,
+        processes: rows.map((p) => ({
+          pid: p.pid,
+          ppid: p.ppid,
+          depth: p.tree_depth,
+          name: `${p.tree_prefix}${p.name}`,
           cpu_usage: p.cpu_usage,
           memory_bytes: p.memory_bytes,
           user: p.user,

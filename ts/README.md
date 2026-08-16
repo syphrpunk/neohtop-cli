@@ -13,6 +13,7 @@ just ts system               # system stats (CPU, memory, disk, network, load)
 just ts processes --filter '^chrome' --sort-by memory --limit 10
 just ts top --by cpu --count 5
 just ts proc 1234            # single-process detail (+ parent/children)
+just ts tree --filter safari # process tree with ├─/└─ prefixes
 just ts snapshot --format json   # Go-CLI --json parity output
 just ts watch --interval-ms 1000 --format jsonl   # realtime stream
 just ts kill 1234 --signal TERM
@@ -30,9 +31,10 @@ Global flags from incur on every command: `--format toon|json|yaml|md|jsonl`, `-
 | Regex search + sort (`filter/`) | ✅ `--filter`, `--sort-by`, `--order` |
 | Realtime refresh loop | ✅ `watch` (streaming, JSONL-friendly) |
 | Kill process | ✅ `kill` with signal choice |
-| Process tree (`filter/tree.go`) | ⬜ planned (`proc` shows parent/children for now) |
-| Per-core CPU on macOS | ⬜ needs mach `host_processor_info` (bun FFI) — total CPU provided |
-| Per-process disk I/O | ⬜ reported as 0 (needs privileged APIs) |
+| Process tree (`filter/tree.go`) | ✅ `tree` (DFS order + rendering prefixes, faithful port) |
+| Per-core CPU on macOS | ✅ via `os.cpus()` tick deltas — bun canary surfaces real `host_processor_info` counters, no FFI needed |
+| Agent wiring | ✅ `.agents/skills/` (symlinked into `.claude/`, `.augment/`) + `.mcp.json` (progressive-discovery MCP) |
+| Per-process disk I/O | ⬜ reported as 0 (needs privileged APIs — `bun:ffi` + libproc `proc_pid_rusage` is the likely route) |
 | Windows | ⬜ planned |
 | TUI | ⬜ planned via [OpenTUI](https://github.com/sst/opentui) (low priority) |
 
