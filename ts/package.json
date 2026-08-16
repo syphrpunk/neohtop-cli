@@ -2,6 +2,11 @@
   "name": "neohtop",
   "version": "0.1.0",
   "description": "Agent-friendly system monitor CLI — TypeScript port of neohtop-cli built on incur",
+  "license": "MIT",
+  "author": "DK (syphrpunk)",
+  "contributors": [
+    "Abdenasser (original NeoHtop / neohtop-cli author)"
+  ],
   "type": "module",
   "bin": {
     "neohtop": "src/index.ts"

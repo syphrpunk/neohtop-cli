@@ -7,6 +7,9 @@ import pkg from '../package.json' with { type: 'json' }
 import { SORT_KEYS, filterProcesses, sortProcesses } from './filter/index.ts'
 import { buildProcessTree } from './filter/tree.ts'
 import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
+import { configDir, configPath, dbPath, initConfig, logPath } from './store/config.ts'
+import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
+import * as service from './store/service.ts'
 
 const listOptions = z.object({
   filter: z
@@ -191,6 +194,125 @@ Cli.create('neohtop', {
       }
     },
   })
+  .command('record', {
+    description: 'Take a snapshot and store it in the metrics SQLite DB (~/.config/neohtop)',
+    async run(c) {
+      const config = initConfig()
+      const { system, processes } = await snapshot(config.record.sampleMs)
+      const db = openDb()
+      try {
+        const at = new Date().toISOString()
+        const result = insertSample(db, at, system, processes, config.record)
+        return c.ok(
+          {
+            recorded: true,
+            sample_id: result.sampleId,
+            at,
+            processes_stored: result.processesStored,
+            pruned: result.pruned,
+            db_path: dbPath(),
+          },
+          {
+            cta: {
+              commands: [{ command: 'history', description: 'Query recorded samples' }],
+            },
+          },
+        )
+      } finally {
+        db.close()
+      }
+    },
+  })
+  .command('history', {
+    description: 'Query recorded metrics from the SQLite store',
+    options: z.object({
+      hours: z.coerce.number().min(0.1).default(24).describe('Look-back window in hours'),
+      limit: z.coerce.number().int().min(1).default(200).describe('Max samples returned'),
+      processes: z
+        .boolean()
+        .default(false)
+        .describe('Include stored top processes for each sample'),
+    }),
+    run(c) {
+      const db = openDb()
+      try {
+        const since = new Date(Date.now() - c.options.hours * 3_600_000).toISOString()
+        const rows = queryHistory(db, since, c.options.limit)
+        const samples = c.options.processes
+          ? rows.map((r) => ({ ...r, top_processes: queryTopProcesses(db, r.id) }))
+          : rows
+        return { ...dbInfo(db), window_hours: c.options.hours, returned: rows.length, samples }
+      } finally {
+        db.close()
+      }
+    },
+  })
+  .command('config', {
+    description: 'Show effective config and storage paths (~/.config/neohtop)',
+    run() {
+      const db = openDb()
+      const info = dbInfo(db)
+      db.close()
+      return {
+        config: initConfig(),
+        paths: { dir: configDir(), config: configPath(), db: dbPath(), log: logPath() },
+        db: info,
+      }
+    },
+  })
+  .command(
+    Cli.create('service', {
+      description: 'Manage the hourly metrics recorder (launchd user agent)',
+    })
+      .command('install', {
+        description: 'Install + start a launchd agent that runs `record` on an interval',
+        options: z.object({
+          intervalSecs: z.coerce
+            .number()
+            .int()
+            .min(60)
+            .default(3600)
+            .describe('Seconds between record runs (default hourly)'),
+        }),
+        run(c) {
+          try {
+            const result = service.install(c.options.intervalSecs)
+            return c.ok(
+              {
+                installed: true,
+                label: service.LABEL,
+                plist: result.plist,
+                command: result.command.join(' '),
+                interval_secs: c.options.intervalSecs,
+                log: logPath(),
+              },
+              {
+                cta: {
+                  commands: [{ command: 'service status', description: 'Verify the agent' }],
+                },
+              },
+            )
+          } catch (err) {
+            return c.error({ code: 'INSTALL_FAILED', message: (err as Error).message })
+          }
+        },
+      })
+      .command('uninstall', {
+        description: 'Stop and remove the launchd agent',
+        run() {
+          return { ...service.uninstall(), label: service.LABEL }
+        },
+      })
+      .command('status', {
+        description: 'Show agent state and DB stats',
+        run() {
+          const db = openDb()
+          const info = dbInfo(db)
+          db.close()
+          return { ...service.status(), label: service.LABEL, db: info, db_path: dbPath() }
+        },
+      }),
+  )
   .command('kill', {
     description: 'Send a signal to a process',
     args: z.object({ pid: z.coerce.number().int().positive().describe('Process ID') }),
