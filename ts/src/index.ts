@@ -6,7 +6,7 @@ import { Cli, z } from 'incur'
 import pkg from '../package.json' with { type: 'json' }
 import { SORT_KEYS, filterProcesses, sortProcesses } from './filter/index.ts'
 import { buildProcessTree } from './filter/tree.ts'
-import { Monitor, sleep, snapshot } from './monitor/index.ts'
+import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
 
 const listOptions = z.object({
   filter: z
@@ -122,8 +122,14 @@ Cli.create('neohtop', {
     },
   })
   .command('proc', {
-    description: 'Detailed info for a single process',
+    description: 'Detailed info for a single process (cwd, children; --env for environment)',
     args: z.object({ pid: z.coerce.number().int().positive().describe('Process ID') }),
+    options: z.object({
+      env: z
+        .boolean()
+        .default(false)
+        .describe('Include environment variables (same-user processes only without root)'),
+    }),
     async run(c) {
       const { processes } = await snapshot(500)
       const proc = processes.find((p) => p.pid === c.args.pid)
@@ -131,8 +137,15 @@ Cli.create('neohtop', {
         return c.error({ code: 'NOT_FOUND', message: `no process with pid ${c.args.pid}` })
       const children = processes.filter((p) => p.ppid === proc.pid).map((p) => p.pid)
       const parent = processes.find((p) => p.pid === proc.ppid)
+      const detail = await processDetail(proc.pid)
       return c.ok(
-        { ...proc, ...(parent ? { parent_name: parent.name } : {}), children },
+        {
+          ...proc,
+          ...(parent ? { parent_name: parent.name } : {}),
+          ...(detail.cwd ? { cwd: detail.cwd } : {}),
+          ...(c.options.env ? { environ: detail.environ ?? [] } : {}),
+          children,
+        },
         {
           cta: {
             commands: [{ command: `kill ${proc.pid}`, description: 'Send SIGTERM' }],

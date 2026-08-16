@@ -2,7 +2,7 @@
 // cumulative platform samples into rates and percentages.
 
 import { platform } from 'node:os'
-import type { PlatformSample, ProcessInfo, SystemStats } from './types.ts'
+import type { PlatformSample, ProcessDetail, ProcessInfo, SystemStats } from './types.ts'
 
 const CLK_TCK = 100
 
@@ -12,9 +12,15 @@ interface PrevSample {
   netTx: number
   coreTicks?: { busy: number; total: number }[]
   procTicks: Map<number, number>
+  procDisk: Map<number, { read: number; write: number }>
 }
 
-async function loadPlatform(): Promise<{ collect: () => PlatformSample }> {
+interface PlatformImpl {
+  collect: () => PlatformSample
+  detail: (pid: number) => ProcessDetail
+}
+
+async function loadPlatform(): Promise<PlatformImpl> {
   switch (platform()) {
     case 'darwin':
       return import('./darwin.ts')
@@ -26,13 +32,14 @@ async function loadPlatform(): Promise<{ collect: () => PlatformSample }> {
 }
 
 export class Monitor {
-  #impl!: { collect: () => PlatformSample }
+  #impl!: PlatformImpl
   #prev: PrevSample | null = null
   #sample: PlatformSample | null = null
   #cpuPerCore: number[] = []
   #netRxRate = 0
   #netTxRate = 0
   #procCpu = new Map<number, number>()
+  #procDiskRate = new Map<number, { read: number; write: number }>()
 
   static async create(): Promise<Monitor> {
     const m = new Monitor()
@@ -59,6 +66,22 @@ export class Monitor {
         if (!p || core.total <= p.total) return 0
         return Math.min(100, ((core.busy - p.busy) / (core.total - p.total)) * 100)
       })
+    }
+
+    // Per-process disk I/O rates from cumulative counter deltas
+    this.#procDiskRate.clear()
+    const procDisk = new Map<number, { read: number; write: number }>()
+    for (const proc of sample.procs) {
+      if (proc.diskReadTotal === undefined && proc.diskWriteTotal === undefined) continue
+      const cur = { read: proc.diskReadTotal ?? 0, write: proc.diskWriteTotal ?? 0 }
+      procDisk.set(proc.pid, cur)
+      const p = prev?.procDisk.get(proc.pid)
+      if (p && elapsed > 0) {
+        this.#procDiskRate.set(proc.pid, {
+          read: Math.max(0, (cur.read - p.read) / elapsed),
+          write: Math.max(0, (cur.write - p.write) / elapsed),
+        })
+      }
     }
 
     // Per-process CPU%
@@ -90,8 +113,13 @@ export class Monitor {
       netTx: sample.netTxTotal,
       coreTicks: sample.cpuPerCoreTicks,
       procTicks,
+      procDisk,
     }
     this.#sample = sample
+  }
+
+  detail(pid: number): ProcessDetail {
+    return this.#impl.detail(pid)
   }
 
   stats(): SystemStats {
@@ -132,20 +160,24 @@ export class Monitor {
   processes(): ProcessInfo[] {
     const s = this.#sample
     if (!s) throw new Error('refresh() must be called before processes()')
-    return s.procs.map((p) => ({
-      pid: p.pid,
-      ppid: p.ppid,
-      name: p.name,
-      cpu_usage: round1(this.#procCpu.get(p.pid) ?? 0),
-      memory_bytes: p.memoryBytes,
-      status: p.status,
-      user: p.user,
-      command: p.command,
-      ...(p.threads !== undefined ? { threads: p.threads } : {}),
-      runtime_secs: p.runtimeSecs,
-      disk_read_bytes: 0,
-      disk_write_bytes: 0,
-    }))
+    return s.procs.map((p) => {
+      const disk = this.#procDiskRate.get(p.pid)
+      return {
+        pid: p.pid,
+        ppid: p.ppid,
+        name: p.name,
+        cpu_usage: round1(this.#procCpu.get(p.pid) ?? 0),
+        memory_bytes: p.memoryBytes,
+        status: p.status,
+        user: p.user,
+        command: p.command,
+        ...(p.threads !== undefined ? { threads: p.threads } : {}),
+        runtime_secs: p.runtimeSecs,
+        ...(p.vsizeBytes !== undefined ? { virtual_memory_bytes: p.vsizeBytes } : {}),
+        disk_read_bytes: Math.round(disk?.read ?? 0),
+        disk_write_bytes: Math.round(disk?.write ?? 0),
+      }
+    })
   }
 }
 
@@ -170,5 +202,11 @@ export async function snapshot(sampleMs = 500): Promise<{
   return { system: mon.stats(), processes: mon.processes() }
 }
 
+/** On-demand expensive fields (cwd, environ) — port of getProcessDetail */
+export async function processDetail(pid: number): Promise<ProcessDetail> {
+  const impl = await loadPlatform()
+  return impl.detail(pid)
+}
+
 export { sleep }
-export type { ProcessInfo, SystemStats } from './types.ts'
+export type { ProcessDetail, ProcessInfo, SystemStats } from './types.ts'

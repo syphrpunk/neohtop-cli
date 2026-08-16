@@ -34,9 +34,16 @@ Global flags from incur on every command: `--format toon|json|yaml|md|jsonl`, `-
 | Process tree (`filter/tree.go`) | ✅ `tree` (DFS order + rendering prefixes, faithful port) |
 | Per-core CPU on macOS | ✅ via `os.cpus()` tick deltas — bun canary surfaces real `host_processor_info` counters, no FFI needed |
 | Agent wiring | ✅ `.agents/skills/` (symlinked into `.claude/`, `.augment/`) + `.mcp.json` (progressive-discovery MCP) |
-| Per-process disk I/O | ⬜ reported as 0 (needs privileged APIs — `bun:ffi` + libproc `proc_pid_rusage` is the likely route) |
-| Windows | ⬜ planned |
+| Per-process disk I/O | ✅ macOS `bun:ffi` → libproc `proc_pid_rusage`; Linux `/proc/[pid]/io` (same-user without root, like Go) |
+| Threads + virtual memory on macOS | ✅ `bun:ffi` → `proc_pidinfo(PROC_PIDTASKINFO)` (verified against `ps -M`) |
+| Process detail (`ProcessDetail`) | ✅ `proc` shows cwd (+ `--env` for environ via `KERN_PROCARGS2` / `/proc/[pid]/environ`) |
+| All 10 sort columns | ✅ cpu, memory, pid, name, runtime, user, status, command, disk, threads |
+| Standalone binary | ✅ `just ts-compile` (bun `--compile`, ~63 MB); `ts-compile-all` cross-builds macOS arm64 + Linux x64/arm64 |
+| Windows | ⬜ planned last (platform priority: macOS → Linux → Windows) |
+| Config persistence | ⬜ deferred to the TUI phase (Go's config is columns/theme/refresh — all TUI concerns) |
 | TUI | ⬜ planned via [OpenTUI](https://github.com/sst/opentui) (low priority) |
+
+All low-level access uses native bun (`bun:ffi` `dlopen` on `libSystem.B.dylib`) — zero added dependencies beyond incur.
 
 ## Layout
 

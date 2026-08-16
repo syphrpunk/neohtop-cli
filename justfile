@@ -49,6 +49,16 @@ ts-check:
 ts-test:
     cd ts && bun test
 
+# Compile the TS CLI to a standalone binary (ts/dist/neohtop)
+ts-compile:
+    cd ts && bun build --compile --minify src/index.ts --outfile dist/neohtop
+
+# Cross-compile standalone binaries for release (macOS arm64 + Linux x64/arm64)
+ts-compile-all:
+    cd ts && bun build --compile --minify --target=bun-darwin-arm64 src/index.ts --outfile dist/neohtop-macos-arm64
+    cd ts && bun build --compile --minify --target=bun-linux-x64 src/index.ts --outfile dist/neohtop-linux-amd64
+    cd ts && bun build --compile --minify --target=bun-linux-arm64 src/index.ts --outfile dist/neohtop-linux-arm64
+
 # Cross-compilation targets
 # Note: macOS builds require CGo (for libproc/mach), Linux builds are pure Go
 build-linux-amd64:

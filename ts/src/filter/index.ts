@@ -2,7 +2,19 @@
 
 import type { ProcessInfo } from '../monitor/types.ts'
 
-export const SORT_KEYS = ['cpu', 'memory', 'pid', 'name', 'runtime', 'user'] as const
+// Same columns as the Go SortConfig (types.SortBy*)
+export const SORT_KEYS = [
+  'cpu',
+  'memory',
+  'pid',
+  'name',
+  'runtime',
+  'user',
+  'status',
+  'command',
+  'disk',
+  'threads',
+] as const
 export type SortKey = (typeof SORT_KEYS)[number]
 
 /**
@@ -57,6 +69,10 @@ export function sortProcesses(
     name: (p: ProcessInfo) => p.name.toLowerCase(),
     runtime: (p: ProcessInfo) => p.runtime_secs,
     user: (p: ProcessInfo) => p.user.toLowerCase(),
+    status: (p: ProcessInfo) => p.status,
+    command: (p: ProcessInfo) => p.command.toLowerCase(),
+    disk: (p: ProcessInfo) => p.disk_read_bytes + p.disk_write_bytes,
+    threads: (p: ProcessInfo) => p.threads ?? 0,
   }[by]
   return [...procs].sort((a, b) => {
     const ka = key(a)

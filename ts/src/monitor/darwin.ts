@@ -4,7 +4,8 @@
 import { execFileSync } from 'node:child_process'
 import { cpus, hostname, release } from 'node:os'
 import { basename } from 'node:path'
-import type { CoreTicks, PlatformSample, RawProc } from './types.ts'
+import * as ffi from './darwin_ffi.ts'
+import type { CoreTicks, PlatformSample, ProcessDetail, RawProc } from './types.ts'
 
 function sh(cmd: string, args: string[]): string {
   return execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
@@ -51,7 +52,7 @@ function collectProcs(): RawProc[] {
     const [pid, ppid, pcpu, rss, state, user, etime] = parts
     const command = parts.slice(7).join(' ')
     const comm = commByPid.get(Number(pid)) ?? command
-    procs.push({
+    const proc: RawProc = {
       pid: Number(pid),
       ppid: Number(ppid),
       name: basename(comm),
@@ -61,9 +62,27 @@ function collectProcs(): RawProc[] {
       user: user!,
       command,
       runtimeSecs: parseEtime(etime!),
-    })
+    }
+    // libproc enrichment — threads/vsize/disk I/O (fails silently for
+    // other users' processes without root, matching the Go port)
+    const ti = ffi.taskInfo(proc.pid)
+    if (ti) {
+      proc.threads = ti.threadCount
+      proc.vsizeBytes = ti.virtualSize
+    }
+    const io = ffi.diskIO(proc.pid)
+    if (io) {
+      proc.diskReadTotal = io.read
+      proc.diskWriteTotal = io.write
+    }
+    procs.push(proc)
   }
   return procs
+}
+
+export function detail(pid: number): ProcessDetail {
+  const cwd = ffi.cwd(pid)
+  return { ...(cwd ? { cwd } : {}), environ: ffi.environ(pid) }
 }
 
 function collectMemory(total: number): { used: number; free: number } {

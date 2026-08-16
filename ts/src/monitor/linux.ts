@@ -1,9 +1,9 @@
 // Linux collector — port of monitor/*_linux.go, reading /proc directly.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { hostname, release } from 'node:os'
-import type { CoreTicks, PlatformSample, RawProc } from './types.ts'
+import type { CoreTicks, PlatformSample, ProcessDetail, RawProc } from './types.ts'
 
 const CLK_TCK = 100 // USER_HZ — 100 on every mainstream Linux
 const PAGE_SIZE = 4096
@@ -74,7 +74,7 @@ function collectProcs(uptimeSecs: number): RawProc[] {
 
       const cmdline = readProc(`${entry}/cmdline`).replace(/\0+$/, '').replaceAll('\0', ' ')
 
-      procs.push({
+      const proc: RawProc = {
         pid: Number(entry),
         ppid: Number(f[1] ?? 0),
         name: comm,
@@ -84,8 +84,20 @@ function collectProcs(uptimeSecs: number): RawProc[] {
         command: cmdline || `[${comm}]`,
         threads: Number(f[17] ?? 0) || undefined,
         runtimeSecs: Math.max(0, Math.floor(uptimeSecs - startTicks / CLK_TCK)),
+        vsizeBytes: Number(f[20] ?? 0),
         cpuTicks: utime + stime,
-      })
+      }
+      try {
+        // /proc/[pid]/io needs same-user (or root) — cumulative byte counters
+        const io = readProc(`${entry}/io`)
+        const read = io.match(/^read_bytes: (\d+)/m)
+        const write = io.match(/^write_bytes: (\d+)/m)
+        if (read) proc.diskReadTotal = Number(read[1])
+        if (write) proc.diskWriteTotal = Number(write[1])
+      } catch {
+        // permission denied — leave undefined
+      }
+      procs.push(proc)
     } catch {
       // process exited mid-scan
     }
@@ -173,4 +185,21 @@ export function collect(): PlatformSample {
 
 export function isSupported(): boolean {
   return existsSync('/proc/stat')
+}
+
+export function detail(pid: number): ProcessDetail {
+  const out: ProcessDetail = {}
+  try {
+    out.cwd = readlinkSync(`/proc/${pid}/cwd`)
+  } catch {
+    // permission denied
+  }
+  try {
+    out.environ = readProc(`${pid}/environ`)
+      .split('\0')
+      .filter((s) => s.includes('='))
+  } catch {
+    out.environ = []
+  }
+  return out
 }

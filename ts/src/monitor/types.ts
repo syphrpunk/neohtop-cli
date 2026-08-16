@@ -15,9 +15,16 @@ export interface ProcessInfo {
   command: string
   threads?: number
   runtime_secs: number
-  /** bytes/s since last refresh (0 where the OS needs privileged APIs) */
+  virtual_memory_bytes?: number
+  /** bytes/s since last refresh (0 when the OS denies the counters) */
   disk_read_bytes: number
   disk_write_bytes: number
+}
+
+/** Expensive per-process fields fetched on demand (port of ProcessDetail) */
+export interface ProcessDetail {
+  cwd?: string
+  environ?: string[]
 }
 
 export interface SystemStats {
@@ -61,6 +68,10 @@ export interface RawProc {
   command: string
   threads?: number
   runtimeSecs: number
+  vsizeBytes?: number
+  /** cumulative disk I/O byte counters; Monitor computes rates */
+  diskReadTotal?: number
+  diskWriteTotal?: number
   /** ready-made percentage (macOS: ps pcpu) */
   cpuPct?: number
   /** cumulative CPU ticks utime+stime (Linux) */
