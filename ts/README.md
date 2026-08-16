@@ -60,7 +60,7 @@ neohtop service uninstall
 | Threads + virtual memory on macOS | ✅ `bun:ffi` → `proc_pidinfo(PROC_PIDTASKINFO)` (verified against `ps -M`) |
 | Process detail (`ProcessDetail`) | ✅ `proc` shows cwd (+ `--env` for environ via `KERN_PROCARGS2` / `/proc/[pid]/environ`) |
 | All 10 sort columns | ✅ cpu, memory, pid, name, runtime, user, status, command, disk, threads |
-| Standalone binary | ✅ `just ts-compile` (bun `--compile`, ~63 MB); `ts-compile-all` cross-builds macOS arm64 + Linux x64/arm64 |
+| Standalone binary | ✅ `just ts-compile` (bun `--compile`, ~63 MB); releases attach per-platform binaries built natively in CI (canary can't cross-target) |
 | Windows | ⬜ planned last (platform priority: macOS → Linux → Windows) |
 | Config persistence | ✅ `~/.config/neohtop/config.json` (+ SQLite metrics store and launchd recorder — beyond Go parity) |
 | TUI | ⬜ planned via [OpenTUI](https://github.com/sst/opentui) (low priority) |

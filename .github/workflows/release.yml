@@ -122,8 +122,54 @@ jobs:
           name: neohtop-cli-windows-amd64
           path: neohtop-cli-windows-amd64.zip
 
+  # TypeScript CLI (ts/) — standalone bun-compiled binaries.
+  # Native compile per runner: bun canary can't download cross-targets.
+  build-ts:
+    needs: [test]
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            suffix: macos-arm64
+          - runner: macos-13
+            suffix: macos-amd64
+          - runner: ubuntu-latest
+            suffix: linux-amd64
+          - runner: ubuntu-24.04-arm
+            suffix: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: canary
+
+      - name: Install dependencies
+        working-directory: ts
+        run: bun install --frozen-lockfile
+
+      - name: Type-check and test
+        working-directory: ts
+        run: |
+          bunx tsc --noEmit
+          bun test
+
+      - name: Compile standalone binary
+        working-directory: ts
+        run: bun build --compile --minify src/index.ts --outfile dist/neohtop-${{ matrix.suffix }}
+
+      - name: Compress binary
+        working-directory: ts/dist
+        run: tar czf neohtop-${{ matrix.suffix }}.tar.gz neohtop-${{ matrix.suffix }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neohtop-ts-${{ matrix.suffix }}
+          path: ts/dist/neohtop-${{ matrix.suffix }}.tar.gz
+
   release:
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-macos, build-windows, build-ts]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,32 +195,8 @@ jobs:
             artifacts/neohtop-cli-macos-arm64.tar.gz
             artifacts/neohtop-cli-macos-amd64.tar.gz
             artifacts/neohtop-cli-windows-amd64.zip
+            artifacts/neohtop-macos-arm64.tar.gz
+            artifacts/neohtop-macos-amd64.tar.gz
+            artifacts/neohtop-linux-amd64.tar.gz
+            artifacts/neohtop-linux-arm64.tar.gz
             artifacts/checksums.txt
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Publish to npm
-        working-directory: npm
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
-          # Sync version from git tag
-          VERSION="${GITHUB_REF_NAME#v}"
-          bun pm pkg set version="$VERSION"
-          mkdir -p bin
-          # The real launcher (bin/neohtop-cli.js) is already in the repo.
-          # The postinstall script (install.js) downloads the actual binary into bin/.
-          bun publish --access public
-
-      - name: Publish to GitHub Packages
-        working-directory: npm
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "//npm.pkg.github.com/:_authToken=${GH_TOKEN}" > "$HOME/.npmrc"
-          # GitHub Packages requires scoped package name
-          bun pm pkg set name="@abdenasser/neohtop-cli"
-          bun publish --access public --registry https://npm.pkg.github.com
