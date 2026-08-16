@@ -134,10 +134,9 @@ jobs:
     strategy:
       matrix:
         include:
+          # no macos-amd64 leg: GitHub retired Intel macOS runners
           - runner: macos-latest
             suffix: macos-arm64
-          - runner: macos-13
-            suffix: macos-amd64
           - runner: ubuntu-latest
             suffix: linux-amd64
           - runner: ubuntu-24.04-arm
@@ -201,7 +200,6 @@ jobs:
             artifacts/neohtop-cli-macos-amd64.tar.gz
             artifacts/neohtop-cli-windows-amd64.zip
             artifacts/neohtop-macos-arm64.tar.gz
-            artifacts/neohtop-macos-amd64.tar.gz
             artifacts/neohtop-linux-amd64.tar.gz
             artifacts/neohtop-linux-arm64.tar.gz
             artifacts/checksums.txt
