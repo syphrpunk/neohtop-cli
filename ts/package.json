@@ -1,0 +1,21 @@
+{
+  "name": "neohtop",
+  "version": "0.1.0",
+  "description": "Agent-friendly system monitor CLI — TypeScript port of neohtop-cli built on incur",
+  "type": "module",
+  "bin": {
+    "neohtop": "src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "incur": "^0.5.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}

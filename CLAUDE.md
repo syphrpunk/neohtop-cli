@@ -22,6 +22,17 @@ just test
 just deps
 ```
 
+## TypeScript Port (ts/)
+
+`ts/` hosts the in-progress TypeScript port built on [incur](https://github.com/wevm/incur) (wevm's agent-first CLI framework) — see `ts/README.md` for port status. It reuses the Go `--json` field names so outputs stay compatible. Commands: `system`, `processes`, `top`, `proc`, `snapshot`, `watch` (streaming), `kill`; all support `--format toon|json|yaml|md|jsonl`, `--llms`, and MCP. TUI will eventually use OpenTUI (low priority).
+
+```bash
+just ts-setup   # bun install
+just ts <cmd>   # run the TS CLI
+just ts-check   # tsc --noEmit
+just ts-test    # bun test
+```
+
 ## Architecture
 
 The app follows the **Elm architecture** (Model → Update → View) via Bubble Tea v2.

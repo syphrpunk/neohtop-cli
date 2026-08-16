@@ -31,6 +31,24 @@ clean:
 install: build
     cp neohtop-cli /usr/local/bin/
 
+# ---- TypeScript port (ts/ — incur-based agent CLI) ----
+
+# Install TS dependencies
+ts-setup:
+    cd ts && bun install
+
+# Run the TS CLI (pass args after --, e.g. `just ts top --count 5`)
+ts *args:
+    cd ts && bun run src/index.ts {{args}}
+
+# Type-check the TS port
+ts-check:
+    cd ts && bunx tsc --noEmit
+
+# Run TS tests
+ts-test:
+    cd ts && bun test
+
 # Cross-compilation targets
 # Note: macOS builds require CGo (for libproc/mach), Linux builds are pure Go
 build-linux-amd64:

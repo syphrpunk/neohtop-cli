@@ -3,6 +3,10 @@ neohtop-cli
 neohtop-cli.exe
 neohtop-cli-*
 
+# TypeScript port
+ts/node_modules/
+ts/dist/
+
 # npm install artifacts (but keep the .js launcher)
 npm/bin/*
 !npm/bin/neohtop-cli.js
