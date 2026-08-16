@@ -151,35 +151,30 @@ jobs:
             artifacts/neohtop-cli-windows-amd64.zip
             artifacts/checksums.txt
 
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
+          bun-version: latest
 
       - name: Publish to npm
         working-directory: npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
           # Sync version from git tag
           VERSION="${GITHUB_REF_NAME#v}"
-          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          bun pm pkg set version="$VERSION"
           mkdir -p bin
           # The real launcher (bin/neohtop-cli.js) is already in the repo.
           # The postinstall script (install.js) downloads the actual binary into bin/.
-          npm publish --access public
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@abdenasser"
+          bun publish --access public
 
       - name: Publish to GitHub Packages
         working-directory: npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "//npm.pkg.github.com/:_authToken=${GH_TOKEN}" > "$HOME/.npmrc"
           # GitHub Packages requires scoped package name
-          npm pkg set name="@abdenasser/neohtop-cli"
-          npm publish --access public
+          bun pm pkg set name="@abdenasser/neohtop-cli"
+          bun publish --access public --registry https://npm.pkg.github.com

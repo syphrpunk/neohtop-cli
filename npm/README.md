@@ -9,8 +9,16 @@ The CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built 
 ## Install
 
 ```bash
+bun install -g neohtop-cli
+```
+
+Or with npm:
+
+```bash
 npm install -g neohtop-cli
 ```
+
+The package downloads the prebuilt binary for your platform on install (or on first run if install scripts are disabled, as they are by default under bun).
 
 ## Usage
 

@@ -1,0 +1,5 @@
+# Tool versions for this repo — run `mise install` to set up
+[tools]
+go = "1.25"
+bun = "latest"
+just = "latest"

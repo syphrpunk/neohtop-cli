@@ -6,9 +6,8 @@ Thanks for your interest in contributing to NeoHtop CLI! Whether it's a bug fix,
 
 ### Prerequisites
 
-- **Go 1.25+** — [go.dev/dl](https://go.dev/dl)
+- **[mise](https://mise.jdx.dev)** — installs the toolchain (Go, bun, just) from `mise.toml`
 - **C compiler** (gcc or clang) — required for CGo on macOS
-- **Make** — for build commands
 - A terminal with Unicode support (most modern terminals work)
 
 ### Setup
@@ -18,8 +17,11 @@ Thanks for your interest in contributing to NeoHtop CLI! Whether it's a bug fix,
 git clone https://github.com/<your-username>/neohtopcli.git
 cd neohtopcli
 
+# Install the toolchain (Go, bun, just)
+mise install
+
 # Build
-make build
+just build
 
 # Run
 ./neohtop-cli
@@ -29,10 +31,10 @@ make build
 
 ```bash
 # Build with race detector for catching concurrency bugs
-make dev
+just dev
 
 # Run tests
-make test
+just test
 ```
 
 ## Project Structure
@@ -151,7 +153,7 @@ Icon lookup uses exact match → prefix match → first word match → fallback.
 - Keep PRs focused on a single feature or fix
 - Include a screenshot for visual changes
 - Test on at least one platform (macOS or Linux)
-- Make sure `make build` succeeds
+- Make sure `just build` succeeds
 
 ## Architecture Guidelines
 

@@ -6,18 +6,20 @@ NeoHtopCLI is a terminal-based process monitor — the CLI companion to [NeoHtop
 
 ## Quick Reference
 
+Toolchain (Go, bun, just) is managed by [mise](https://mise.jdx.dev) — run `mise install` once. Tasks run via `just` (see `justfile`); the npm package under `npm/` is managed with bun.
+
 ```bash
 # Build & run (requires CGo on macOS)
-make build && ./neohtop-cli
+just build && ./neohtop-cli
 
 # Dev build with race detector
-make dev
+just dev
 
 # Run tests
-make test
+just test
 
 # Resolve dependencies
-make deps
+just deps
 ```
 
 ## Architecture
@@ -73,11 +75,11 @@ cli/
 
 | Target | Platform | CGo | Notes |
 |---|---|---|---|
-| `make build` | Native | Yes (macOS) | Default build |
-| `make build-linux-amd64` | Linux x86_64 | No | Pure Go |
-| `make build-linux-arm64` | Linux ARM64 | No | Pure Go |
-| `make build-macos-arm64` | macOS ARM | Yes | Apple Silicon |
-| `make build-macos-amd64` | macOS Intel | Yes | Cross-compile on macOS |
+| `just build` | Native | Yes (macOS) | Default build |
+| `just build-linux-amd64` | Linux x86_64 | No | Pure Go |
+| `just build-linux-arm64` | Linux ARM64 | No | Pure Go |
+| `just build-macos-arm64` | macOS ARM | Yes | Apple Silicon |
+| `just build-macos-amd64` | macOS Intel | Yes | Cross-compile on macOS |
 
 ## Adding Things
 
@@ -92,7 +94,7 @@ cli/
 ## Testing
 
 ```bash
-make test                              # run all tests
+just test                              # run all tests
 go test -count=1 ./filter/...          # run filter tests only
 go test -count=1 -run TestBuildProcess # run specific test
 ```

@@ -28,6 +28,12 @@ The CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built 
 ## Installation
 
 ```bash
+bun install -g neohtop-cli
+```
+
+Or with npm:
+
+```bash
 npm install -g neohtop-cli
 ```
 
@@ -77,13 +83,14 @@ Download [`neohtop-cli-windows-amd64.zip`](https://github.com/Abdenasser/neohtop
 <details>
 <summary><b>Build from source</b></summary>
 
-Requires [Go 1.25+](https://go.dev/dl) and a C compiler for CGo on macOS.
+Requires [mise](https://mise.jdx.dev) (installs Go, bun, and just from `mise.toml`) and a C compiler for CGo on macOS.
 
 ```bash
 git clone https://github.com/Abdenasser/neohtop-cli.git
 cd neohtop-cli
-make build
-make install  # optional — copies to /usr/local/bin/
+mise install   # installs Go, bun, and just
+just build
+just install   # optional — copies to /usr/local/bin/
 ```
 
 </details>
@@ -291,7 +298,8 @@ neohtop-cli/
 │   ├── theme/                 # 15 color themes
 │   ├── filter/                # search, filter, sort, tree
 │   └── config/                # persistent user settings
-├── Makefile
+├── justfile
+├── mise.toml
 └── CONTRIBUTING.md
 ```
 
