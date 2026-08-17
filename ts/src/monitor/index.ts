@@ -26,8 +26,10 @@ async function loadPlatform(): Promise<PlatformImpl> {
       return import('./darwin.ts')
     case 'linux':
       return import('./linux.ts')
+    case 'win32':
+      return import('./windows.ts')
     default:
-      throw new Error(`unsupported platform: ${platform()} (macOS and Linux only for now)`)
+      throw new Error(`unsupported platform: ${platform()}`)
   }
 }
 

@@ -129,6 +129,9 @@ jobs:
 
   # TypeScript CLI (ts/) — standalone bun-compiled binaries.
   # Native compile per runner: bun canary can't download cross-targets.
+  # Each leg also embeds incur's binary metadata (__INCUR_BINARY_*) and
+  # uploads a `neohtop-<incur-target>.gz` asset — the exact name+format
+  # incur's `--update` GitHub provider looks for (gzip of the raw binary).
   build-ts:
     needs: [test]
     strategy:
@@ -137,10 +140,20 @@ jobs:
           # no macos-amd64 leg: GitHub retired Intel macOS runners
           - runner: macos-latest
             suffix: macos-arm64
+            incur_target: darwin-arm64
+            exe: ""
           - runner: ubuntu-latest
             suffix: linux-amd64
+            incur_target: linux-x64-glibc-baseline
+            exe: ""
           - runner: ubuntu-24.04-arm
             suffix: linux-arm64
+            incur_target: linux-arm64-glibc
+            exe: ""
+          - runner: windows-latest
+            suffix: windows-amd64
+            incur_target: windows-x64-baseline
+            exe: ".exe"
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -161,16 +174,31 @@ jobs:
 
       - name: Compile standalone binary
         working-directory: ts
-        run: bun build --compile --minify src/index.ts --outfile dist/neohtop-${{ matrix.suffix }}
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          bun build --compile --minify src/index.ts \
+            --outfile "dist/neohtop-${{ matrix.suffix }}${{ matrix.exe }}" \
+            --define "__INCUR_BINARY_NAME__=\"neohtop\"" \
+            --define "__INCUR_BINARY_TARGET__=\"${{ matrix.incur_target }}\"" \
+            --define "__INCUR_BINARY_VERSION__=\"${VERSION}\""
 
       - name: Compress binary
         working-directory: ts/dist
-        run: tar czf neohtop-${{ matrix.suffix }}.tar.gz neohtop-${{ matrix.suffix }}
+        shell: bash
+        run: |
+          tar czf neohtop-${{ matrix.suffix }}.tar.gz neohtop-${{ matrix.suffix }}${{ matrix.exe }}
+          # self-update asset: gzip of the raw binary, incur canonical name
+          gzip -9 -c neohtop-${{ matrix.suffix }}${{ matrix.exe }} > neohtop-${{ matrix.incur_target }}${{ matrix.exe }}.gz
 
       - uses: actions/upload-artifact@v4
         with:
           name: neohtop-ts-${{ matrix.suffix }}
-          path: ts/dist/neohtop-${{ matrix.suffix }}.tar.gz
+          path: |
+            ts/dist/neohtop-${{ matrix.suffix }}.tar.gz
+            ts/dist/neohtop-${{ matrix.incur_target }}${{ matrix.exe }}.gz
 
   release:
     needs: [build-linux, build-macos, build-windows, build-ts]
@@ -186,13 +214,14 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum neohtop* > checksums.txt
           cat checksums.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: |
             artifacts/neohtop-cli-linux-amd64.tar.gz
             artifacts/neohtop-cli-linux-arm64.tar.gz
@@ -202,4 +231,9 @@ jobs:
             artifacts/neohtop-macos-arm64.tar.gz
             artifacts/neohtop-linux-amd64.tar.gz
             artifacts/neohtop-linux-arm64.tar.gz
+            artifacts/neohtop-windows-amd64.tar.gz
+            artifacts/neohtop-darwin-arm64.gz
+            artifacts/neohtop-linux-x64-glibc-baseline.gz
+            artifacts/neohtop-linux-arm64-glibc.gz
+            artifacts/neohtop-windows-x64-baseline.exe.gz
             artifacts/checksums.txt

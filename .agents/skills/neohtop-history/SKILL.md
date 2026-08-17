@@ -16,3 +16,4 @@ Query recorded metrics from the SQLite store
 | `--hours` | `number` | `24` | Look-back window in hours |
 | `--limit` | `number` | `200` | Max samples returned |
 | `--processes` | `boolean` | `false` | Include stored top processes for each sample |
+| `--charts` | `boolean` | `false` | Include braille sparkline trend charts (oldest → newest) |

@@ -2,14 +2,16 @@
 // neohtop — agent-friendly system monitor CLI (TypeScript port of cli/, built on incur).
 // Every command supports --format toon|json|yaml|md|jsonl, --llms, and MCP via incur.
 
-import { Cli, z } from 'incur'
+import { Binary, Cli, z } from 'incur'
 import pkg from '../package.json' with { type: 'json' }
 import { SORT_KEYS, filterProcesses, sortProcesses } from './filter/index.ts'
 import { buildProcessTree } from './filter/tree.ts'
 import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
 import { configDir, configPath, dbPath, initConfig, logPath } from './store/config.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
+import { reportAnomalies, reportHourly, reportTopConsumers, reportWindow } from './store/report.ts'
 import * as service from './store/service.ts'
+import { sparkline } from './view/sparkline.ts'
 
 const listOptions = z.object({
   filter: z
@@ -41,6 +43,9 @@ Cli.create('neohtop', {
   description:
     'System monitor for humans and agents — realtime process/CPU/memory/disk/network reporting',
   version: pkg.version,
+  // Self-update for compiled binaries via GitHub release assets
+  // (neohtop-<target>.gz); a no-op when running from source.
+  update: Binary.github({ repository: 'syphrpunk/neohtop-cli' }),
 })
   .command('system', {
     description: 'System-wide stats: CPU, memory, disk, network, load, host info',
@@ -232,6 +237,10 @@ Cli.create('neohtop', {
         .boolean()
         .default(false)
         .describe('Include stored top processes for each sample'),
+      charts: z
+        .boolean()
+        .default(false)
+        .describe('Include braille sparkline trend charts (oldest → newest)'),
     }),
     run(c) {
       const db = openDb()
@@ -241,7 +250,95 @@ Cli.create('neohtop', {
         const samples = c.options.processes
           ? rows.map((r) => ({ ...r, top_processes: queryTopProcesses(db, r.id) }))
           : rows
-        return { ...dbInfo(db), window_hours: c.options.hours, returned: rows.length, samples }
+        const chrono = [...rows].reverse() // queryHistory returns newest-first
+        const charts = c.options.charts
+          ? {
+              cpu_pct: sparkline(
+                chrono.map((r) => r.cpu_usage_total),
+                { max: 100 },
+              ),
+              memory_used: sparkline(chrono.map((r) => r.memory_used)),
+              load_1: sparkline(chrono.map((r) => r.load_1)),
+            }
+          : undefined
+        return {
+          ...dbInfo(db),
+          window_hours: c.options.hours,
+          returned: rows.length,
+          ...(charts ? { charts } : {}),
+          samples,
+        }
+      } finally {
+        db.close()
+      }
+    },
+  })
+  .command('report', {
+    description:
+      'Aggregate report over the metrics store: hourly avg/peak series, top consumers, anomaly flags',
+    options: z.object({
+      hours: z.coerce.number().min(1).default(24).describe('Look-back window in hours'),
+      top: z.coerce.number().int().min(1).default(10).describe('Top consumers to include'),
+      charts: z
+        .boolean()
+        .default(true)
+        .describe('Include braille sparkline trend charts (oldest → newest hour)'),
+    }),
+    run(c) {
+      const db = openDb()
+      try {
+        const since = new Date(Date.now() - c.options.hours * 3_600_000).toISOString()
+        const window = reportWindow(db, since)
+        if (!window)
+          return c.error({
+            code: 'NO_DATA',
+            message: `no samples in the last ${c.options.hours}h — run 'record' once or 'service install' for hourly recording`,
+          })
+        window.hours = c.options.hours
+        const hourly = reportHourly(db, since)
+        const topConsumers = reportTopConsumers(db, since, c.options.top)
+        const anomalies = reportAnomalies(db, since)
+
+        const n = hourly.reduce((a, h) => a + h.samples, 0)
+        const wavg = (f: (h: (typeof hourly)[number]) => number) =>
+          Math.round((hourly.reduce((a, h) => a + f(h) * h.samples, 0) / n) * 10) / 10
+        const summary = {
+          cpu_avg: wavg((h) => h.cpu_avg),
+          cpu_peak: Math.max(...hourly.map((h) => h.cpu_peak)),
+          memory_used_avg: Math.round(hourly.reduce((a, h) => a + h.memory_used_avg * h.samples, 0) / n),
+          memory_used_peak: Math.max(...hourly.map((h) => h.memory_used_peak)),
+          load1_avg: wavg((h) => h.load1_avg),
+          load1_peak: Math.max(...hourly.map((h) => h.load1_peak)),
+          anomaly_count: anomalies.length,
+        }
+        const charts = c.options.charts
+          ? {
+              cpu_pct: sparkline(
+                hourly.map((h) => h.cpu_avg),
+                { max: 100 },
+              ),
+              memory_used: sparkline(hourly.map((h) => h.memory_used_avg)),
+              load_1: sparkline(hourly.map((h) => h.load1_avg)),
+            }
+          : undefined
+        return c.ok(
+          {
+            window,
+            summary,
+            ...(charts ? { charts } : {}),
+            hourly,
+            top_consumers: topConsumers,
+            anomalies,
+          },
+          {
+            cta: {
+              commands: [
+                { command: 'history --charts', description: 'Per-sample series' },
+                { command: 'top', description: 'Live top processes' },
+              ],
+            },
+          },
+        )
       } finally {
         db.close()
       }
@@ -262,10 +359,11 @@ Cli.create('neohtop', {
   })
   .command(
     Cli.create('service', {
-      description: 'Manage the hourly metrics recorder (launchd user agent)',
+      description:
+        'Manage the hourly metrics recorder (launchd agent on macOS, systemd user timer on Linux)',
     })
       .command('install', {
-        description: 'Install + start a launchd agent that runs `record` on an interval',
+        description: 'Install + start a scheduled job that runs `record` on an interval',
         options: z.object({
           intervalSecs: z.coerce
             .number()
@@ -280,15 +378,16 @@ Cli.create('neohtop', {
             return c.ok(
               {
                 installed: true,
-                label: service.LABEL,
-                plist: result.plist,
+                scheduler: result.scheduler,
+                name: service.scheduler().name,
+                files: result.files,
                 command: result.command.join(' '),
                 interval_secs: c.options.intervalSecs,
                 log: logPath(),
               },
               {
                 cta: {
-                  commands: [{ command: 'service status', description: 'Verify the agent' }],
+                  commands: [{ command: 'service status', description: 'Verify the job' }],
                 },
               },
             )
@@ -298,18 +397,31 @@ Cli.create('neohtop', {
         },
       })
       .command('uninstall', {
-        description: 'Stop and remove the launchd agent',
-        run() {
-          return { ...service.uninstall(), label: service.LABEL }
+        description: 'Stop and remove the scheduled recorder job',
+        run(c) {
+          try {
+            return { ...service.uninstall(), name: service.scheduler().name }
+          } catch (err) {
+            return c.error({ code: 'UNINSTALL_FAILED', message: (err as Error).message })
+          }
         },
       })
       .command('status', {
-        description: 'Show agent state and DB stats',
-        run() {
-          const db = openDb()
-          const info = dbInfo(db)
-          db.close()
-          return { ...service.status(), label: service.LABEL, db: info, db_path: dbPath() }
+        description: 'Show scheduled-job state and DB stats',
+        run(c) {
+          try {
+            const db = openDb()
+            const info = dbInfo(db)
+            db.close()
+            return {
+              ...service.status(),
+              name: service.scheduler().name,
+              db: info,
+              db_path: dbPath(),
+            }
+          } catch (err) {
+            return c.error({ code: 'STATUS_FAILED', message: (err as Error).message })
+          }
         },
       }),
   )

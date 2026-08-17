@@ -34,14 +34,25 @@ State lives under `~/.config/neohtop/` (argo-style; `XDG_CONFIG_HOME` respected)
 ```bash
 neohtop record                    # take one sample into the DB (also prunes past retention)
 neohtop history --hours 24        # system series from the store
+neohtop history --charts          # + braille sparkline trend charts
 neohtop history --processes       # include stored top processes per sample
+neohtop report --hours 24         # hourly avg/peak series, top consumers, anomaly flags, charts
 neohtop config                    # effective config + storage paths + DB stats
-neohtop service install           # launchd user agent: runs `record` hourly (RunAtLoad fires one immediately)
-neohtop service status            # agent state + DB stats
+neohtop service install           # scheduled job: runs `record` hourly
+neohtop service status            # job state + DB stats
 neohtop service uninstall
 ```
 
-`service install` writes `~/Library/LaunchAgents/com.syphrpunk.neohtop.record.plist` with absolute paths (launchd has a minimal PATH) — pointing at the compiled binary when installed from one, or `<bun> <script> record` in dev. macOS only for now; a Linux systemd user timer is the planned equivalent.
+`report` flags unhealthy samples: `io_pressure` (load1 far above core count at moderate CPU — I/O wait), `cpu_saturation` (>90% CPU), `memory_pressure` (>92% used).
+
+`service install` uses the platform scheduler with absolute paths (neither inherits a useful PATH) — pointing at the compiled binary when installed from one, or `<bun> <script> record` in dev:
+
+- **macOS**: launchd user agent at `~/Library/LaunchAgents/com.syphrpunk.neohtop.record.plist` (RunAtLoad fires one sample immediately)
+- **Linux**: systemd user units `neohtop-record.service` + `.timer` under `~/.config/systemd/user/` (`OnUnitActiveSec`, enabled via `systemctl --user enable --now`)
+
+## Self-update
+
+Compiled release binaries embed incur's update metadata: `neohtop --update` checks GitHub releases for a newer `neohtop-<target>.gz` asset, verifies its SHA-256 digest, and swaps the executable in place. Running from source is unaffected.
 
 ## Port status
 
@@ -61,8 +72,11 @@ neohtop service uninstall
 | Process detail (`ProcessDetail`) | ✅ `proc` shows cwd (+ `--env` for environ via `KERN_PROCARGS2` / `/proc/[pid]/environ`) |
 | All 10 sort columns | ✅ cpu, memory, pid, name, runtime, user, status, command, disk, threads |
 | Standalone binary | ✅ `just ts-compile` (bun `--compile`, ~63 MB); releases attach per-platform binaries built natively in CI (canary can't cross-target) |
-| Windows | ⬜ planned last (platform priority: macOS → Linux → Windows) |
-| Config persistence | ✅ `~/.config/neohtop/config.json` (+ SQLite metrics store and launchd recorder — beyond Go parity) |
+| Windows | ✅ monitor port (PowerShell CIM + `os.cpus()` ticks; no load avg / process owner / cwd) — CI-built, not yet hand-verified on hardware |
+| Config persistence | ✅ `~/.config/neohtop/config.json` (+ SQLite metrics store and scheduled recorder — beyond Go parity) |
+| Reporting | ✅ `report` (hourly aggregates, top consumers, anomaly flags) + braille sparkline charts (port of `cli/view/sparkline.go`) |
+| Self-update | ✅ `--update` via incur's GitHub-release provider (compiled binaries only) |
+| Sparklines | ✅ `ts/src/view/sparkline.ts` — same 5-level braille mapping as the Go TUI |
 | TUI | ⬜ planned via [OpenTUI](https://github.com/sst/opentui) (low priority) |
 
 All low-level access uses native bun (`bun:ffi` `dlopen` on `libSystem.B.dylib`) — zero added dependencies beyond incur.
@@ -71,11 +85,20 @@ All low-level access uses native bun (`bun:ffi` `dlopen` on `libSystem.B.dylib`)
 
 ```
 ts/src/
-├── index.ts          # incur CLI: system, processes, top, proc, snapshot, watch, kill
+├── index.ts          # incur CLI: system, processes, top, proc, snapshot, watch, kill,
+│                     # record, history, report, config, service
 ├── monitor/
 │   ├── types.ts      # output shapes (mirror Go --json keys) + platform contract
 │   ├── index.ts      # Monitor class — delta/rate computation, snapshot()
-│   ├── darwin.ts     # macOS collector (shell interfaces instead of CGo)
-│   └── linux.ts      # Linux collector (/proc, direct port of Go approach)
-└── filter/           # regex filter + column sort port
+│   ├── darwin.ts     # macOS collector (ps/sysctl/vm_stat + bun:ffi libproc)
+│   ├── linux.ts      # Linux collector (/proc, direct port of Go approach)
+│   └── windows.ts    # Windows collector (PowerShell CIM + os.cpus() ticks)
+├── store/
+│   ├── config.ts     # ~/.config/neohtop paths + persisted settings
+│   ├── db.ts         # bun:sqlite metrics store (system_samples, process_samples)
+│   ├── report.ts     # aggregate queries: hourly series, top consumers, anomalies
+│   └── service.ts    # scheduled recorder (launchd / systemd user timer)
+├── view/
+│   └── sparkline.ts  # braille sparklines (port of cli/view/sparkline.go)
+└── filter/           # regex filter + column sort + process tree port
 ```
