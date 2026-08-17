@@ -7,6 +7,10 @@ neohtop-cli-*
 ts/node_modules/
 ts/dist/
 
+# memento task tracking (local-only)
+.memento/
+.memento.yml
+
 # npm install artifacts (but keep the .js launcher)
 npm/bin/*
 !npm/bin/neohtop-cli.js
