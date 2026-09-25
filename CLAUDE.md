@@ -122,3 +122,26 @@ git push --tags
 ```
 
 This runs tests first, then builds binaries for macOS (arm64 + amd64), Linux (amd64 + arm64), and Windows (amd64), creates a GitHub Release with checksums, and publishes to npm + GitHub Packages.
+
+## Handoff protocol
+
+This project uses the handoff workflow (the handoff skills and plugin) for resumable state across sessions, compactions, model swaps, and agent runtimes.
+
+**Before any work:**
+- Run the `handoff-continue` skill to bootstrap context.
+- Read files listed in `.handoff/config.yaml` under `project.readingOrder`.
+
+**Before stopping:**
+- Run the `handoff-create` skill to checkpoint.
+- Use a full checkpoint flow if compaction is imminent or work is structurally significant (new phase, major refactor, etc.).
+- A checkpoint ends in a commit of its own files (explicit paths, commit hook honoured, never pushed); unrelated dirty files stay unstaged.
+
+**Other flags:**
+- `handoff-list` — show checkpoints
+- `handoff-switch` — promote an archived checkpoint to active
+- `handoff-verify` — run project test command
+- `handoff-diff` — what changed since last checkpoint
+
+**Configuration:** `.handoff/config.yaml`
+
+The workflow is task-manager, package-manager, VCS, and agent-runtime agnostic. Any agent that can read markdown and run shell can follow this protocol — see the handoff plugin's `references/multi-agent-protocol.md`.

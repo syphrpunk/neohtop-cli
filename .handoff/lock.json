@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1",
+  "updatedAt": "2026-09-25T08:55:00Z",
+  "updatedBy": "MBARemote.local",
+  "files": {
+    "HANDOFF.md": {
+      "sha256": "3330324cd444559df1dda2efe0b9899b64f90933138e21b2c5b95da20dd7c110",
+      "bytes": 3102,
+      "modifiedAt": "2026-09-25T08:55:00Z"
+    },
+    "DEVLOG.md": {
+      "sha256": "2a551c1f594f5eaa47f0bdc382b6c6466f67ad9b6b525f6e7d3d723363206c6c",
+      "bytes": 591,
+      "modifiedAt": "2026-09-25T08:55:00Z"
+    },
+    "CHANGELOG.md": {
+      "sha256": "f23b6b5bff0b5eb237d1c472ba5272cede402563def748bb53d52d69044d5bad",
+      "bytes": 267,
+      "modifiedAt": "2026-09-25T08:38:55Z"
+    },
+    ".handoff/config.yaml": {
+      "sha256": "3de646360b092412b0af9864f052c8af515ef82d92aa17a2ab8276fb8c7a12bb",
+      "bytes": 1280,
+      "modifiedAt": "2026-09-25T08:55:00Z"
+    }
+  }
+}

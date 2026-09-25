@@ -1,0 +1,65 @@
+schemaVersion: "1"
+project:
+  name: neohtop-cli
+  docs:
+    handoff: HANDOFF.md
+    devlog: DEVLOG.md
+    changelog: CHANGELOG.md
+  adrs: docs/adr/
+  prds: null
+  phases: null
+  readingOrder:
+    - HANDOFF.md
+    - DEVLOG.md
+taskManager:
+  kind: memento
+  invoke: mm
+  listOpen: "mm item list --status=in-progress,todo --format=json"
+  listRecent: null
+  parseFormat: json
+  refFormat: "mm-{id}"
+  fields:
+    id: id
+    title: title
+    status: status
+packageManager:
+  kind: custom
+  install: ""
+  test: "just test"
+  typecheck: ""
+  build: ""
+  lint: null
+vcs:
+  kind: git
+  currentRev: git rev-parse --short HEAD
+  recentCommits: git log --oneline -10
+  branch: git branch --show-current
+secrets:
+  scan: true
+  patterns:
+    - 'ghp_[A-Za-z0-9]{36}'
+    - 'sk-[A-Za-z0-9]{32,}'
+    - 'AKIA[0-9A-Z]{16}'
+    - '(?i)(api|secret|access)_?key\s*[=:]\s*["'']?[\w-]{20,}'
+  envFiles:
+    - .env
+    - .env.local
+    - .envrc
+prompts:
+  preamble: null
+  postamble: null
+handoffs:
+  active: HANDOFF.md
+  archiveDir: .handoff/archive
+  lockfile: .handoff/lock.json
+  lastCreated: "2026-09-25T08:55:00Z"
+  lastFullCreated: null
+  lastParentRev: 72641af
+  verificationCache:
+    command: null
+    result: null
+    passed: null
+    at: null
+hooks:
+  preCompact: true
+  postSession: false
