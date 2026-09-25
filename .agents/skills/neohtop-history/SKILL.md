@@ -17,3 +17,4 @@ Query recorded metrics from the SQLite store
 | `--limit` | `number` | `200` | Max samples returned |
 | `--processes` | `boolean` | `false` | Include stored top processes for each sample |
 | `--charts` | `boolean` | `false` | Include braille sparkline trend charts (oldest → newest) |
+| `--openmetrics` | `boolean` | `false` | Print the latest sample as OpenMetrics text. Default format prints it raw; json wraps the string |

@@ -19,3 +19,4 @@ List processes with regex filtering and column sorting
 | `--order` | `string` | `desc` | Sort direction |
 | `--limit` | `number` | `0` | Max rows (0 = all) |
 | `--sampleMs` | `number` | `500` | Delta-sampling window in ms for CPU/network rates |
+| `--pin` | `string` |  | Comma-separated name or command patterns to float for this run. Saved pins live in config.json |

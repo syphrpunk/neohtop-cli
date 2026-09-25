@@ -15,10 +15,13 @@ export interface Config {
     /** delta-sampling window for CPU/network rates */
     sampleMs: number
   }
+  /** Name or command patterns floated by `top` and `processes`. */
+  pins: string[]
 }
 
 export const DEFAULTS: Config = {
   record: { processLimit: 30, retentionDays: 30, sampleMs: 500 },
+  pins: [],
 }
 
 export function configDir(): string {
@@ -36,10 +39,23 @@ export function ensureConfigDir(): string {
   return dir
 }
 
+/** Accept a partial or older config file. Unknown pins are dropped, not guessed. */
+export function normalizeConfig(raw: unknown): Config {
+  const obj = raw && typeof raw === 'object' ? (raw as { record?: unknown; pins?: unknown }) : {}
+  const record =
+    obj.record && typeof obj.record === 'object' ? (obj.record as Partial<Config['record']>) : {}
+  const pins = Array.isArray(obj.pins)
+    ? obj.pins.filter((pin): pin is string => typeof pin === 'string' && pin.trim().length > 0)
+    : []
+  return {
+    record: { ...DEFAULTS.record, ...record },
+    pins: pins.map((pin) => pin.trim()),
+  }
+}
+
 export function loadConfig(): Config {
   try {
-    const raw = JSON.parse(readFileSync(configPath(), 'utf8'))
-    return { record: { ...DEFAULTS.record, ...raw.record } }
+    return normalizeConfig(JSON.parse(readFileSync(configPath(), 'utf8')))
   } catch {
     return structuredClone(DEFAULTS)
   }

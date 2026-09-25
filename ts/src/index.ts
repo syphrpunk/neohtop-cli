@@ -5,11 +5,13 @@
 import { Binary, Cli, z } from 'incur'
 import pkg from '../package.json' with { type: 'json' }
 import { SORT_KEYS, FilterQueryError, filterProcesses, sortProcesses } from './filter/index.ts'
+import { splitPinned } from './filter/pins.ts'
 import { buildProcessTree } from './filter/tree.ts'
 import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
 import { NetError, sampleNet } from './monitor/net.ts'
-import { configDir, configPath, dbPath, initConfig, logPath } from './store/config.ts'
+import { configDir, configPath, dbPath, initConfig, loadConfig, logPath } from './store/config.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
+import { renderOpenMetrics } from './store/openmetrics.ts'
 import { reportAnomalies, reportHourly, reportTopConsumers, reportWindow } from './store/report.ts'
 import * as service from './store/service.ts'
 import { sparkline } from './view/sparkline.ts'
@@ -38,6 +40,26 @@ type ListOptions = z.infer<typeof listOptions>
 function selectProcesses(procs: Awaited<ReturnType<typeof snapshot>>['processes'], o: ListOptions) {
   const filtered = sortProcesses(filterProcesses(procs, o.filter, o.user), o.sortBy, o.order)
   return o.limit > 0 ? filtered.slice(0, o.limit) : filtered
+}
+
+function resolvePins(extra?: string): string[] {
+  const once = extra?.split(',').map((pin) => pin.trim()).filter(Boolean) ?? []
+  return [...loadConfig().pins, ...once]
+}
+
+function arrangePins<T extends { name: string; command: string }>(
+  sorted: T[],
+  patterns: string[],
+  limit: number,
+): Array<T | { pin: string; running: false }> {
+  if (patterns.length === 0) return limit > 0 ? sorted.slice(0, limit) : sorted
+  const { pinned, rest, missing } = splitPinned(sorted, patterns)
+  const body = limit > 0 ? rest.slice(0, limit) : rest
+  return [
+    ...pinned.map((row) => ({ ...row, pinned: true as const })),
+    ...body,
+    ...missing.map((pin) => ({ pin, running: false as const })),
+  ]
 }
 
 function badFilter(err: unknown): { code: 'BAD_FILTER'; message: string } | null {
@@ -106,12 +128,24 @@ Cli.create('neohtop', {
   })
   .command('processes', {
     description: 'List processes with regex filtering and column sorting',
-    options: listOptions,
+    options: listOptions.extend({
+      pin: z
+        .string()
+        .optional()
+        .describe(
+          'Comma-separated name or command patterns to float for this run. Saved pins live in config.json',
+        ),
+    }),
     async run(c) {
       const { processes } = await snapshot(c.options.sampleMs)
       let rows
       try {
-        rows = selectProcesses(processes, c.options)
+        const sorted = sortProcesses(
+          filterProcesses(processes, c.options.filter, c.options.user),
+          c.options.sortBy,
+          c.options.order,
+        )
+        rows = arrangePins(sorted, resolvePins(c.options.pin), c.options.limit)
       } catch (err) {
         const bad = badFilter(err)
         if (bad) return c.error(bad)
@@ -134,23 +168,40 @@ Cli.create('neohtop', {
     description: 'Top N processes by CPU or memory',
     options: z.object({
       by: z.enum(['cpu', 'memory']).default('cpu').describe('Ranking column'),
-      count: z.coerce.number().int().min(1).default(10).describe('Number of rows'),
+      count: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .default(10)
+        .describe('Unpinned rows to keep. Pinned rows are extra and stay visible'),
+      pin: z
+        .string()
+        .optional()
+        .describe(
+          'Comma-separated name or command patterns to float for this run. Saved pins live in config.json',
+        ),
       sampleMs: listOptions.shape.sampleMs,
     }),
     async run(c) {
       const { system, processes } = await snapshot(c.options.sampleMs)
-      const rows = sortProcesses(processes, c.options.by, 'desc').slice(0, c.options.count)
+      const sorted = sortProcesses(processes, c.options.by, 'desc')
+      const rows = arrangePins(sorted, resolvePins(c.options.pin), c.options.count)
       return {
         cpu_usage_total: system.cpu_usage_total,
         memory_used: system.memory_used,
         memory_total: system.memory_total,
-        processes: rows.map((p) => ({
-          pid: p.pid,
-          name: p.name,
-          cpu_usage: p.cpu_usage,
-          memory_bytes: p.memory_bytes,
-          user: p.user,
-        })),
+        processes: rows.map((p) =>
+          'running' in p
+            ? p
+            : {
+                pid: p.pid,
+                name: p.name,
+                cpu_usage: p.cpu_usage,
+                memory_bytes: p.memory_bytes,
+                user: p.user,
+                ...('pinned' in p ? { pinned: true } : {}),
+              },
+        ),
       }
     },
   })
@@ -305,12 +356,27 @@ Cli.create('neohtop', {
         .boolean()
         .default(false)
         .describe('Include braille sparkline trend charts (oldest → newest)'),
+      openmetrics: z
+        .boolean()
+        .default(false)
+        .describe(
+          'Print the latest sample as OpenMetrics text. Default format prints it raw; json wraps the string',
+        ),
     }),
     run(c) {
       const db = openDb()
       try {
         const since = new Date(Date.now() - c.options.hours * 3_600_000).toISOString()
-        const rows = queryHistory(db, since, c.options.limit)
+        const rows = queryHistory(db, since, c.options.openmetrics ? 1 : c.options.limit)
+        if (c.options.openmetrics) {
+          const latest = rows[0]
+          if (!latest)
+            return c.error({
+              code: 'NO_DATA',
+              message: `no samples in the last ${c.options.hours}h — run 'record' once or 'service install' for hourly recording`,
+            })
+          return renderOpenMetrics(latest)
+        }
         const samples = c.options.processes
           ? rows.map((r) => ({ ...r, top_processes: queryTopProcesses(db, r.id) }))
           : rows

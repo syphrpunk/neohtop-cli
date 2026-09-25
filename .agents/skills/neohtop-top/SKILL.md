@@ -14,5 +14,6 @@ Top N processes by CPU or memory
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--by` | `string` | `cpu` | Ranking column |
-| `--count` | `number` | `10` | Number of rows |
+| `--count` | `number` | `10` | Unpinned rows to keep. Pinned rows are extra and stay visible |
+| `--pin` | `string` |  | Comma-separated name or command patterns to float for this run. Saved pins live in config.json |
 | `--sampleMs` | `number` | `500` | Delta-sampling window in ms for CPU/network rates |
