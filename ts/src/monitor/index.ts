@@ -2,6 +2,8 @@
 // cumulative platform samples into rates and percentages.
 
 import { platform } from 'node:os'
+import { powerWatts } from './energy.ts'
+import type { EnergyNj } from './energy.ts'
 import type { PlatformSample, ProcessDetail, ProcessInfo, SystemStats } from './types.ts'
 
 const CLK_TCK = 100
@@ -13,6 +15,7 @@ interface PrevSample {
   coreTicks?: { busy: number; total: number }[]
   procTicks: Map<number, number>
   procDisk: Map<number, { read: number; write: number }>
+  energyNj?: EnergyNj
 }
 
 interface PlatformImpl {
@@ -40,6 +43,7 @@ export class Monitor {
   #cpuPerCore: number[] = []
   #netRxRate = 0
   #netTxRate = 0
+  #power: Partial<Record<'cpu' | 'gpu' | 'ane' | 'dram', number>> = {}
   #procCpu = new Map<number, number>()
   #procDiskRate = new Map<number, { read: number; write: number }>()
 
@@ -60,6 +64,7 @@ export class Monitor {
       this.#netRxRate = Math.max(0, (sample.netRxTotal - prev.netRx) / elapsed)
       this.#netTxRate = Math.max(0, (sample.netTxTotal - prev.netTx) / elapsed)
     }
+    this.#power = powerWatts(prev?.energyNj, sample.energyNj, elapsed)
 
     // Per-core CPU% from tick deltas (Linux)
     if (sample.cpuPerCoreTicks) {
@@ -116,6 +121,7 @@ export class Monitor {
       coreTicks: sample.cpuPerCoreTicks,
       procTicks,
       procDisk,
+      ...(sample.energyNj ? { energyNj: sample.energyNj } : {}),
     }
     this.#sample = sample
   }
@@ -156,6 +162,8 @@ export class Monitor {
       os_version: s.osVersion,
       kernel_version: s.kernelVersion,
       process_count: s.procs.length,
+      ...optionalSystemStats(s),
+      ...powerFields(this.#power),
     }
   }
 
@@ -185,6 +193,43 @@ export class Monitor {
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10
+}
+
+/** Copy swap and battery only when both halves of the pair were measured. */
+export function optionalSystemStats(s: PlatformSample): Partial<SystemStats> {
+  const out: Partial<SystemStats> = {}
+  if (s.swapTotal !== undefined && s.swapUsed !== undefined) {
+    out.swap_total_bytes = Math.round(s.swapTotal)
+    out.swap_used_bytes = Math.round(s.swapUsed)
+  }
+  if (s.batteryChargePercent !== undefined && s.batteryCharging !== undefined) {
+    out.battery_charge_percent = round1(s.batteryChargePercent)
+    out.battery_charging = s.batteryCharging
+  }
+  if (s.psiCpuSomeAvg10 !== undefined) out.psi_cpu_some_avg10 = round2(s.psiCpuSomeAvg10)
+  if (s.psiIoSomeAvg10 !== undefined) out.psi_io_some_avg10 = round2(s.psiIoSomeAvg10)
+  if (s.psiMemorySomeAvg10 !== undefined) out.psi_memory_some_avg10 = round2(s.psiMemorySomeAvg10)
+  if (s.memoryPressureLevel !== undefined) out.memory_pressure_level = s.memoryPressureLevel
+  return out
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000
+}
+
+function powerFields(
+  power: Partial<Record<'cpu' | 'gpu' | 'ane' | 'dram', number>>,
+): Partial<SystemStats> {
+  const out: Partial<SystemStats> = {}
+  if (power.cpu !== undefined) out.cpu_power_watts = round3(power.cpu)
+  if (power.gpu !== undefined) out.gpu_power_watts = round3(power.gpu)
+  if (power.ane !== undefined) out.ane_power_watts = round3(power.ane)
+  if (power.dram !== undefined) out.dram_power_watts = round3(power.dram)
+  return out
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

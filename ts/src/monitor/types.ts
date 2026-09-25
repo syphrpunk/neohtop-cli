@@ -1,6 +1,8 @@
 // Output shapes mirror the Go CLI's --json field names (cli/main.go) so
 // existing jq pipelines keep working against the TypeScript port.
 
+import type { EnergyNj } from './energy.ts'
+
 export interface ProcessInfo {
   pid: number
   ppid: number
@@ -48,7 +50,44 @@ export interface SystemStats {
   os_version: string
   kernel_version: string
   process_count: number
+  /**
+   * Swap in bytes. Omitted when the platform has no reading — never a
+   * stand-in zero. A measured total of 0 (swap disabled) is still stored.
+   * TS-only until the Go monitor grows the same fields.
+   */
+  swap_total_bytes?: number
+  swap_used_bytes?: number
+  /**
+   * Omitted when the machine has no battery. `battery_charging: false`
+   * means a battery is present and not charging.
+   */
+  battery_charge_percent?: number
+  battery_charging?: boolean
+  /**
+   * Linux PSI `some` avg10: percent of the last 10s in which at least one
+   * task was stalled. Each resource is omitted when `/proc/pressure` has
+   * no reading. A measured 0 is stored.
+   */
+  psi_cpu_some_avg10?: number
+  psi_io_some_avg10?: number
+  psi_memory_some_avg10?: number
+  /**
+   * macOS `kern.memorystatus_vm_pressure_level` as the userspace note,
+   * not the internal 0–4 enum: 1 normal, 2 warning (also urgent), 4 critical.
+   * Omitted on other platforms and on an unrecognized value.
+   */
+  memory_pressure_level?: MemoryPressureLevel
+  /**
+   * Apple Silicon package power between the last two refreshes.
+   * Omitted when IOReport has no reading. A measured 0 is an idle rail.
+   */
+  cpu_power_watts?: number
+  gpu_power_watts?: number
+  ane_power_watts?: number
+  dram_power_watts?: number
 }
+
+export type MemoryPressureLevel = 'normal' | 'warning' | 'critical'
 
 // ---- Internal platform-sample contract ----
 
@@ -98,4 +137,18 @@ export interface PlatformSample {
   osVersion: string
   kernelVersion: string
   procs: RawProc[]
+  /** Bytes. Both set, or both absent. */
+  swapTotal?: number
+  swapUsed?: number
+  /** Both set, or both absent. `batteryCharging` may be false. */
+  batteryChargePercent?: number
+  batteryCharging?: boolean
+  /** Linux PSI `some` avg10. Each is independent. */
+  psiCpuSomeAvg10?: number
+  psiIoSomeAvg10?: number
+  psiMemorySomeAvg10?: number
+  /** macOS note: normal / warning / critical. */
+  memoryPressureLevel?: MemoryPressureLevel
+  /** Cumulative package energy in nanojoules. Monitor turns the delta into watts. */
+  energyNj?: EnergyNj
 }

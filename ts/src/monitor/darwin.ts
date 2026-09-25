@@ -5,7 +5,14 @@ import { execFileSync } from 'node:child_process'
 import { cpus, hostname, release } from 'node:os'
 import { basename } from 'node:path'
 import * as ffi from './darwin_ffi.ts'
-import type { CoreTicks, PlatformSample, ProcessDetail, RawProc } from './types.ts'
+import { readEnergy } from './darwin_energy.ts'
+import type {
+  CoreTicks,
+  MemoryPressureLevel,
+  PlatformSample,
+  ProcessDetail,
+  RawProc,
+} from './types.ts'
 
 function sh(cmd: string, args: string[]): string {
   return execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
@@ -22,6 +29,47 @@ const STATUS_MAP: Record<string, string> = {
   T: 'Stopped',
   Z: 'Zombie',
   U: 'Waiting',
+}
+
+const SWAP_UNIT: Record<string, number> = {
+  K: 1024,
+  M: 1024 ** 2,
+  G: 1024 ** 3,
+  T: 1024 ** 4,
+}
+
+/** `vm.swapusage` value, with or without the `vm.swapusage:` prefix. */
+export function parseSwapUsage(text: string): { total: number; used: number } | null {
+  const total = text.match(/total\s*=\s*([\d.]+)\s*([KMGT])?/i)
+  const used = text.match(/used\s*=\s*([\d.]+)\s*([KMGT])?/i)
+  if (!total || !used) return null
+  const scale = (amount: string, unit: string | undefined) => {
+    const n = Number(amount)
+    if (!Number.isFinite(n)) return null
+    const mult = unit ? SWAP_UNIT[unit.toUpperCase()] : 1
+    if (!mult) return null
+    return Math.round(n * mult)
+  }
+  const totalBytes = scale(total[1]!, total[2])
+  const usedBytes = scale(used[1]!, used[2])
+  if (totalBytes === null || usedBytes === null) return null
+  return { total: totalBytes, used: usedBytes }
+}
+
+/**
+ * `pmset -g batt`. No battery line → null (a desktop on AC is not 0%).
+ * "not charging" is not charging.
+ */
+export function parsePmsetBatt(text: string): { chargePercent: number; charging: boolean } | null {
+  const batteryLines = text.split('\n').filter((l) => /battery/i.test(l) && l.includes('%'))
+  const line = batteryLines.find((l) => /internalbattery/i.test(l)) ?? batteryLines[0]
+  if (!line) return null
+  const m = line.match(/(\d+(?:\.\d+)?)%\s*;\s*([^;\n]+)/)
+  if (!m) return null
+  const chargePercent = Number(m[1])
+  if (!Number.isFinite(chargePercent)) return null
+  const status = m[2]!.trim().toLowerCase()
+  return { chargePercent, charging: status === 'charging' || status === 'finishing charge' }
 }
 
 /** Parse ps etime ([[dd-]hh:]mm:ss) into seconds */
@@ -134,6 +182,47 @@ function collectCoreTicks(): CoreTicks[] {
   })
 }
 
+function collectSwap(): { total: number; used: number } | undefined {
+  try {
+    return parseSwapUsage(sysctl('vm.swapusage')) ?? undefined
+  } catch {
+    return
+  }
+}
+
+/**
+ * `sysctl -n kern.memorystatus_vm_pressure_level` returns the userspace
+ * note (NOTE_MEMORYSTATUS_PRESSURE_*), not the internal enum. 1 is normal.
+ */
+export function parseMemoryPressureLevel(text: string): MemoryPressureLevel | null {
+  switch (Number(text.trim())) {
+    case 1:
+      return 'normal'
+    case 2:
+      return 'warning'
+    case 4:
+      return 'critical'
+    default:
+      return null
+  }
+}
+
+function collectMemoryPressure(): MemoryPressureLevel | undefined {
+  try {
+    return parseMemoryPressureLevel(sysctl('kern.memorystatus_vm_pressure_level')) ?? undefined
+  } catch {
+    return
+  }
+}
+
+function collectBattery(): { chargePercent: number; charging: boolean } | undefined {
+  try {
+    return parsePmsetBatt(sh('/usr/bin/pmset', ['-g', 'batt'])) ?? undefined
+  } catch {
+    return
+  }
+}
+
 function collectDisk(): { total: number; used: number; free: number } {
   const line = sh('/bin/df', ['-k', '/']).split('\n')[1]
   const parts = line?.trim().split(/\s+/) ?? []
@@ -149,6 +238,10 @@ export function collect(): PlatformSample {
   const { used, free } = collectMemory(memoryTotal)
   const net = collectNet()
   const disk = collectDisk()
+  const swap = collectSwap()
+  const battery = collectBattery()
+  const memoryPressureLevel = collectMemoryPressure()
+  const energyNj = readEnergy()
 
   const bootMatch = sysctl('kern.boottime').match(/sec = (\d+)/)
   const uptimeSecs = bootMatch ? Math.floor(Date.now() / 1000) - Number(bootMatch[1]) : 0
@@ -178,5 +271,11 @@ export function collect(): PlatformSample {
     osVersion: `macOS ${sh('/usr/bin/sw_vers', ['-productVersion']).trim()}`,
     kernelVersion: `Darwin ${release()}`,
     procs: collectProcs(),
+    ...(swap ? { swapTotal: swap.total, swapUsed: swap.used } : {}),
+    ...(battery
+      ? { batteryChargePercent: battery.chargePercent, batteryCharging: battery.charging }
+      : {}),
+    ...(memoryPressureLevel ? { memoryPressureLevel } : {}),
+    ...(energyNj ? { energyNj } : {}),
   }
 }

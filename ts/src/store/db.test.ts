@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import type { ProcessInfo, SystemStats } from '../monitor/types.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './db.ts'
@@ -83,5 +87,87 @@ describe('metrics store', () => {
     const oneHourAgo = new Date(Date.now() - 3_600_000).toISOString()
     expect(queryHistory(db, oneHourAgo, 10)).toHaveLength(1)
     db.close()
+  })
+
+  test('stores swap and a not-charging battery, and omits them when absent', () => {
+    const db = openDb(':memory:')
+    const since = new Date(Date.now() - 3_600_000).toISOString()
+    insertSample(db, new Date().toISOString(), system, [], { processLimit: 1, retentionDays: 30 })
+    insertSample(
+      db,
+      new Date().toISOString(),
+      {
+        ...system,
+        swap_total_bytes: 2048,
+        swap_used_bytes: 512,
+        battery_charge_percent: 80,
+        battery_charging: false,
+        cpu_power_watts: 4.5,
+        ane_power_watts: 0,
+      },
+      [],
+      { processLimit: 1, retentionDays: 30 },
+    )
+    const rows = queryHistory(db, since, 10)
+    const plain = rows.find((r) => r.swap_total_bytes === undefined)!
+    expect(plain).not.toHaveProperty('swap_total_bytes')
+    expect(plain).not.toHaveProperty('battery_charging')
+    const rich = rows.find((r) => r.swap_total_bytes !== undefined)!
+    expect(rich.swap_used_bytes).toBe(512)
+    expect(rich.battery_charge_percent).toBe(80)
+    expect(rich.battery_charging).toBe(false)
+    expect(rich.cpu_power_watts).toBe(4.5)
+    expect(rich.ane_power_watts).toBe(0)
+    expect(plain).not.toHaveProperty('cpu_power_watts')
+    db.close()
+  })
+
+  test('adds nullable columns to a database created before swap and battery', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neohtop-db-'))
+    const path = join(dir, 'old.db')
+    const old = new Database(path)
+    old.run(`CREATE TABLE system_samples (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      cpu_usage_total REAL NOT NULL,
+      cpu_usage_per_core TEXT NOT NULL,
+      memory_total INTEGER NOT NULL,
+      memory_used INTEGER NOT NULL,
+      memory_free INTEGER NOT NULL,
+      load_1 REAL NOT NULL,
+      load_5 REAL NOT NULL,
+      load_15 REAL NOT NULL,
+      network_rx_bytes INTEGER NOT NULL,
+      network_tx_bytes INTEGER NOT NULL,
+      disk_total_bytes INTEGER NOT NULL,
+      disk_used_bytes INTEGER NOT NULL,
+      disk_free_bytes INTEGER NOT NULL,
+      uptime_secs INTEGER NOT NULL,
+      process_count INTEGER NOT NULL
+    )`)
+    old.close()
+
+    const db = openDb(path)
+    const names = (db.prepare('PRAGMA table_info(system_samples)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(names).toContain('swap_used_bytes')
+    expect(names).toContain('battery_charging')
+    expect(names).toContain('psi_io_some_avg10')
+    expect(names).toContain('memory_pressure_level')
+    expect(names).toContain('cpu_power_watts')
+    insertSample(
+      db,
+      new Date().toISOString(),
+      { ...system, swap_total_bytes: 100, swap_used_bytes: 40 },
+      [],
+      { processLimit: 1, retentionDays: 30 },
+    )
+    const row = queryHistory(db, new Date(Date.now() - 3_600_000).toISOString(), 1)[0]!
+    expect(row.swap_used_bytes).toBe(40)
+    expect(row).not.toHaveProperty('battery_charge_percent')
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
   })
 })

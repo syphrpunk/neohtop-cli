@@ -50,7 +50,16 @@ interface SampleRow {
   memory_used: number
   memory_total: number
   load_1: number
+  psi_io_some_avg10: number | null
+  psi_memory_some_avg10: number | null
+  memory_pressure_level: string | null
 }
+
+/**
+ * PSI `some` avg10 is the percent of the last 10 seconds in which at least
+ * one task was stalled. 10% is the anomaly line; below that we stay quiet.
+ */
+const PSI_SOME_AVG10_ANOMALY = 10
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
@@ -119,15 +128,19 @@ export function reportTopConsumers(db: Database, sinceIso: string, limit: number
 
 /**
  * Flag samples that look unhealthy:
- * - io_pressure: load1 far above core count while CPU is only moderate —
- *   runnable queue full of tasks stuck in I/O wait (the 2026-08-17 43.2 spike)
- * - cpu_saturation: total CPU above 90%
- * - memory_pressure: memory used above 92% of total
+ * - io_pressure: Linux PSI io `some` avg10 when that reading exists;
+ *   otherwise load1 far above core count while CPU is only moderate
+ *   (the 2026-08-17 43.2 spike)
+ * - cpu_saturation: total CPU above 90%. CPU PSI is stored but not flagged;
+ *   saturation and stall are different questions.
+ * - memory_pressure: macOS pressure level when present (warning or critical),
+ *   else Linux PSI memory `some` avg10, else memory used above 92%
  */
 export function reportAnomalies(db: Database, sinceIso: string): Anomaly[] {
   const rows = db
     .prepare(
-      `SELECT at, cpu_usage_total, cpu_usage_per_core, memory_used, memory_total, load_1
+      `SELECT at, cpu_usage_total, cpu_usage_per_core, memory_used, memory_total, load_1,
+              psi_io_some_avg10, psi_memory_some_avg10, memory_pressure_level
        FROM system_samples WHERE at >= ? ORDER BY at`,
     )
     .all(sinceIso) as SampleRow[]
@@ -148,7 +161,15 @@ export function reportAnomalies(db: Database, sinceIso: string): Anomaly[] {
       load_1: round1(r.load_1),
       memory_used_pct: round1(memPct),
     }
-    if (r.load_1 > cores * 2 && r.cpu_usage_total < 60) {
+    if (r.psi_io_some_avg10 != null) {
+      if (r.psi_io_some_avg10 >= PSI_SOME_AVG10_ANOMALY) {
+        anomalies.push({
+          ...base,
+          type: 'io_pressure',
+          detail: `I/O stall some avg10 ${round1(r.psi_io_some_avg10)}%`,
+        })
+      }
+    } else if (r.load_1 > cores * 2 && r.cpu_usage_total < 60) {
       anomalies.push({
         ...base,
         type: 'io_pressure',
@@ -162,7 +183,24 @@ export function reportAnomalies(db: Database, sinceIso: string): Anomaly[] {
         detail: `total CPU ${round1(r.cpu_usage_total)}%`,
       })
     }
-    if (memPct > 92) {
+    const level = r.memory_pressure_level
+    if (level != null) {
+      if (level === 'warning' || level === 'critical') {
+        anomalies.push({
+          ...base,
+          type: 'memory_pressure',
+          detail: `memory pressure ${level}`,
+        })
+      }
+    } else if (r.psi_memory_some_avg10 != null) {
+      if (r.psi_memory_some_avg10 >= PSI_SOME_AVG10_ANOMALY) {
+        anomalies.push({
+          ...base,
+          type: 'memory_pressure',
+          detail: `memory stall some avg10 ${round1(r.psi_memory_some_avg10)}%`,
+        })
+      }
+    } else if (memPct > 92) {
       anomalies.push({
         ...base,
         type: 'memory_pressure',

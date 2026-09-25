@@ -56,6 +56,10 @@ describe('windows buildSample', () => {
     expect(sample.osVersion).toBe('Microsoft Windows 11 Pro')
     expect(sample.kernelVersion).toBe('10.0.26100')
     expect(sample.hostname).toBe('winbox')
+    expect(sample.swapTotal).toBeUndefined()
+    expect(sample.batteryChargePercent).toBeUndefined()
+    expect(sample.psiIoSomeAvg10).toBeUndefined()
+    expect(sample.memoryPressureLevel).toBeUndefined()
   })
 
   test('process rows convert 100ns CPU time to 10ms ticks', () => {

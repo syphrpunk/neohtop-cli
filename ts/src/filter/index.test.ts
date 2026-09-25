@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProcessInfo } from '../monitor/types.ts'
-import { filterProcesses, sortProcesses } from './index.ts'
+import { FilterQueryError, filterProcesses, sortProcesses } from './index.ts'
 
 function proc(overrides: Partial<ProcessInfo>): ProcessInfo {
   return {
@@ -84,6 +84,40 @@ describe('filterProcesses', () => {
 
   test('alternation like the Go TUI search', () => {
     expect(filterProcesses(procs, 'node|systemd').map((p) => p.pid)).toEqual([200, 300])
+  })
+
+  test('commas OR text terms', () => {
+    expect(filterProcesses(procs, 'chrome, node').map((p) => p.pid)).toEqual([100, 200])
+  })
+
+  test('predicates AND with the text terms', () => {
+    expect(filterProcesses(procs, 'chrome, node, cpu>20').map((p) => p.pid)).toEqual([100])
+    expect(filterProcesses(procs, 'mem>800').map((p) => p.pid)).toEqual([200])
+    expect(filterProcesses(procs, 'mem>=900, cpu>=10').map((p) => p.pid)).toEqual([200])
+    expect(filterProcesses(procs, 'pid:300').map((p) => p.pid)).toEqual([300])
+  })
+
+  test('memory sizes use 1024-based units', () => {
+    const big = proc({ pid: 900, name: 'big', command: 'big', memory_bytes: 2 * 1024 ** 3 })
+    expect(filterProcesses([...procs, big], 'mem>1G').map((p) => p.pid)).toEqual([900])
+  })
+
+  test('a quoted term keeps a comma and is not a predicate', () => {
+    const listed = [
+      ...procs,
+      proc({ pid: 401, name: 'x', command: 'sees a,b here', cpu_usage: 1 }),
+      proc({ pid: 402, name: 'y', command: 'cpu>50 literal', cpu_usage: 1 }),
+    ]
+    expect(filterProcesses(listed, '"a,b"').map((p) => p.pid)).toEqual([401])
+    expect(filterProcesses(listed, '"cpu>50"').map((p) => p.pid)).toEqual([402])
+  })
+
+  test('invalid and unknown predicates throw', () => {
+    expect(() => filterProcesses(procs, 'cpu>nope')).toThrow(FilterQueryError)
+    expect(() => filterProcesses(procs, 'port:80')).toThrow(FilterQueryError)
+    expect(() => filterProcesses(procs, 'user:dk')).toThrow(FilterQueryError)
+    expect(() => filterProcesses(procs, 'chrome,')).toThrow(FilterQueryError)
+    expect(() => filterProcesses(procs, '"chrome')).toThrow(FilterQueryError)
   })
 })
 

@@ -105,6 +105,34 @@ function collectProcs(uptimeSecs: number): RawProc[] {
   return procs
 }
 
+/** SwapTotal/SwapFree from `/proc/meminfo`. Missing keys → null, not zero. */
+export function parseMeminfoSwap(text: string): { total: number; used: number } | null {
+  const total = text.match(/^SwapTotal:\s+(\d+)\s+kB/m)
+  const free = text.match(/^SwapFree:\s+(\d+)\s+kB/m)
+  if (!total || !free) return null
+  const totalBytes = Number(total[1]) * 1024
+  const freeBytes = Number(free[1]) * 1024
+  return { total: totalBytes, used: Math.max(0, totalBytes - freeBytes) }
+}
+
+/** First `some avg10=` in a `/proc/pressure/*` file. Missing file is the caller's problem. */
+export function parsePsiSomeAvg10(text: string): number | null {
+  const m = text.match(/^some\s+avg10=(\d+(?:\.\d+)?)/m)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+/** `capacity` and `status` from `/sys/class/power_supply/BAT*`. */
+export function parseLinuxBattery(
+  capacity: string,
+  status: string,
+): { chargePercent: number; charging: boolean } | null {
+  const chargePercent = Number(capacity.trim())
+  if (!Number.isFinite(chargePercent)) return null
+  return { chargePercent, charging: status.trim().toLowerCase() === 'charging' }
+}
+
 function collectMem(): { total: number; used: number; free: number } {
   const kv: Record<string, number> = {}
   for (const line of readProc('meminfo').split('\n')) {
@@ -127,6 +155,41 @@ function collectNet(): { rx: number; tx: number } {
     tx += Number(f[8] ?? 0)
   }
   return { rx, tx }
+}
+
+function collectSwap(): { total: number; used: number } | undefined {
+  try {
+    return parseMeminfoSwap(readProc('meminfo')) ?? undefined
+  } catch {
+    return
+  }
+}
+
+function collectPsi(kind: 'cpu' | 'io' | 'memory'): number | undefined {
+  try {
+    return parsePsiSomeAvg10(readProc(`pressure/${kind}`)) ?? undefined
+  } catch {
+    return
+  }
+}
+
+function collectBattery(): { chargePercent: number; charging: boolean } | undefined {
+  try {
+    const dir = '/sys/class/power_supply'
+    if (!existsSync(dir)) return
+    const bats = readdirSync(dir)
+      .filter((n) => /^BAT\d+$/.test(n))
+      .sort()
+    const bat = bats[0]
+    if (!bat) return
+    const parsed = parseLinuxBattery(
+      readFileSync(`${dir}/${bat}/capacity`, 'utf8'),
+      readFileSync(`${dir}/${bat}/status`, 'utf8'),
+    )
+    return parsed ?? undefined
+  } catch {
+    return
+  }
 }
 
 function collectDisk(): { total: number; used: number; free: number } {
@@ -161,6 +224,11 @@ export function collect(): PlatformSample {
   const net = collectNet()
   const disk = collectDisk()
   const cores = collectCoreTicks()
+  const swap = collectSwap()
+  const battery = collectBattery()
+  const psiCpu = collectPsi('cpu')
+  const psiIo = collectPsi('io')
+  const psiMemory = collectPsi('memory')
 
   return {
     cpuBrand: cpuBrand(),
@@ -180,6 +248,13 @@ export function collect(): PlatformSample {
     osVersion: osVersion(),
     kernelVersion: release(),
     procs: collectProcs(uptimeSecs),
+    ...(swap ? { swapTotal: swap.total, swapUsed: swap.used } : {}),
+    ...(battery
+      ? { batteryChargePercent: battery.chargePercent, batteryCharging: battery.charging }
+      : {}),
+    ...(psiCpu !== undefined ? { psiCpuSomeAvg10: psiCpu } : {}),
+    ...(psiIo !== undefined ? { psiIoSomeAvg10: psiIo } : {}),
+    ...(psiMemory !== undefined ? { psiMemorySomeAvg10: psiMemory } : {}),
   }
 }
 

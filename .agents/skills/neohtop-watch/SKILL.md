@@ -15,6 +15,6 @@ Stream realtime snapshots at an interval (use --format jsonl for pipelines)
 |------|------|---------|-------------|
 | `--intervalMs` | `number` | `1000` | Refresh interval |
 | `--count` | `number` | `0` | Number of snapshots to emit (0 = until interrupted) |
-| `--filter` | `string` |  | Match against name, command, and PID — bare words match whole words; regex metacharacters switch to full regex |
+| `--filter` | `string` |  | Match name, command, and PID. Commas OR terms (chrome, node); quote a term to keep a comma in a regex. Predicates AND: cpu>, cpu>=, mem>, mem>= (K/M/G), pid:N |
 | `--sortBy` | `string` | `cpu` | Sort column |
 | `--limit` | `number` | `15` | Processes per snapshot |

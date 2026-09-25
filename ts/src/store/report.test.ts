@@ -105,4 +105,40 @@ describe('report', () => {
     expect(types).toContain('memory_pressure')
     expect(types).not.toContain('io_pressure')
   })
+
+  test('a normal macOS pressure level replaces the 92% guess', () => {
+    record(db, '2026-08-17T06:00:00.000Z', {
+      memory_used: 15_500,
+      memory_pressure_level: 'normal',
+    })
+    expect(reportAnomalies(db, '2026-08-17T00:00:00Z')).toHaveLength(0)
+  })
+
+  test('warning and critical levels flag even when usage looks fine', () => {
+    record(db, '2026-08-17T06:00:00.000Z', { memory_pressure_level: 'warning' })
+    record(db, '2026-08-17T07:00:00.000Z', { memory_pressure_level: 'critical' })
+    const details = reportAnomalies(db, '2026-08-17T00:00:00Z').map((a) => a.detail)
+    expect(details).toEqual(['memory pressure warning', 'memory pressure critical'])
+  })
+
+  test('PSI replaces the load proxy and the memory-percent guess', () => {
+    record(db, '2026-08-17T06:00:00.000Z', {
+      load_avg: [12, 5, 3],
+      cpu_usage_total: 45,
+      psi_io_some_avg10: 0,
+      psi_memory_some_avg10: 0,
+      memory_used: 15_500,
+    })
+    record(db, '2026-08-17T07:00:00.000Z', {
+      load_avg: [0.2, 0.2, 0.2],
+      cpu_usage_total: 10,
+      psi_io_some_avg10: 22.5,
+      psi_memory_some_avg10: 11,
+      memory_used: 4_000,
+    })
+    const anomalies = reportAnomalies(db, '2026-08-17T00:00:00Z')
+    expect(anomalies.map((a) => a.type)).toEqual(['io_pressure', 'memory_pressure'])
+    expect(anomalies[0]!.detail).toBe('I/O stall some avg10 22.5%')
+    expect(anomalies[1]!.detail).toBe('memory stall some avg10 11%')
+  })
 })

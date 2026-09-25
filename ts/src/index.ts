@@ -4,9 +4,10 @@
 
 import { Binary, Cli, z } from 'incur'
 import pkg from '../package.json' with { type: 'json' }
-import { SORT_KEYS, filterProcesses, sortProcesses } from './filter/index.ts'
+import { SORT_KEYS, FilterQueryError, filterProcesses, sortProcesses } from './filter/index.ts'
 import { buildProcessTree } from './filter/tree.ts'
 import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
+import { NetError, sampleNet } from './monitor/net.ts'
 import { configDir, configPath, dbPath, initConfig, logPath } from './store/config.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
 import { reportAnomalies, reportHourly, reportTopConsumers, reportWindow } from './store/report.ts'
@@ -18,7 +19,7 @@ const listOptions = z.object({
     .string()
     .optional()
     .describe(
-      'Match against name, command, and PID — bare words match whole words; regex metacharacters switch to full regex',
+      'Match name, command, and PID. Commas OR terms (chrome, node); quote a term to keep a comma in a regex. Predicates AND: cpu>, cpu>=, mem>, mem>= (K/M/G), pid:N',
     ),
   user: z.string().optional().describe('Only processes owned by this user'),
   sortBy: z.enum(SORT_KEYS).default('cpu').describe('Sort column'),
@@ -39,6 +40,11 @@ function selectProcesses(procs: Awaited<ReturnType<typeof snapshot>>['processes'
   return o.limit > 0 ? filtered.slice(0, o.limit) : filtered
 }
 
+function badFilter(err: unknown): { code: 'BAD_FILTER'; message: string } | null {
+  if (err instanceof FilterQueryError) return { code: 'BAD_FILTER', message: err.message }
+  return null
+}
+
 Cli.create('neohtop', {
   description:
     'System monitor for humans and agents — realtime process/CPU/memory/disk/network reporting',
@@ -56,10 +62,46 @@ Cli.create('neohtop', {
         cta: {
           commands: [
             { command: 'top', description: 'Top processes by CPU' },
+            { command: 'net', description: 'Per-connection byte rates' },
             { command: 'watch', description: 'Stream realtime snapshots' },
           ],
         },
       })
+    },
+  })
+  .command('net', {
+    description:
+      'Per-connection byte rates attributed to a process. Does not sniff packets or escalate privileges.',
+    options: z.object({
+      sampleMs: z.coerce
+        .number()
+        .int()
+        .min(100)
+        .default(500)
+        .describe('Window between the two counter reads, in ms'),
+      limit: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .default(20)
+        .describe('Max connections (0 = all). Idle connections are omitted'),
+    }),
+    async run(c) {
+      try {
+        const rows = await sampleNet(c.options.sampleMs)
+        const shown = c.options.limit > 0 ? rows.slice(0, c.options.limit) : rows
+        return c.ok(
+          { count: shown.length, sample_ms: c.options.sampleMs, connections: shown },
+          {
+            cta: {
+              commands: [{ command: 'proc <pid>', description: 'Inspect one of these processes' }],
+            },
+          },
+        )
+      } catch (err) {
+        if (err instanceof NetError) return c.error({ code: 'NET_UNAVAILABLE', message: err.message })
+        throw err
+      }
     },
   })
   .command('processes', {
@@ -67,7 +109,14 @@ Cli.create('neohtop', {
     options: listOptions,
     async run(c) {
       const { processes } = await snapshot(c.options.sampleMs)
-      const rows = selectProcesses(processes, c.options)
+      let rows
+      try {
+        rows = selectProcesses(processes, c.options)
+      } catch (err) {
+        const bad = badFilter(err)
+        if (bad) return c.error(bad)
+        throw err
+      }
       return c.ok(
         { count: rows.length, total: processes.length, processes: rows },
         {
@@ -114,7 +163,15 @@ Cli.create('neohtop', {
     }),
     async run(c) {
       const { processes } = await snapshot(c.options.sampleMs)
-      const rows = buildProcessTree(filterProcesses(processes, c.options.filter, c.options.user))
+      let matched
+      try {
+        matched = filterProcesses(processes, c.options.filter, c.options.user)
+      } catch (err) {
+        const bad = badFilter(err)
+        if (bad) return c.error(bad)
+        throw err
+      }
+      const rows = buildProcessTree(matched)
       return {
         count: rows.length,
         processes: rows.map((p) => ({
@@ -185,6 +242,13 @@ Cli.create('neohtop', {
       limit: z.coerce.number().int().min(1).default(15).describe('Processes per snapshot'),
     }),
     async *run(c) {
+      try {
+        filterProcesses([], c.options.filter)
+      } catch (err) {
+        const bad = badFilter(err)
+        if (bad) return c.error(bad)
+        throw err
+      }
       const mon = await Monitor.create()
       mon.refresh()
       for (let seq = 1; c.options.count === 0 || seq <= c.options.count; seq++) {

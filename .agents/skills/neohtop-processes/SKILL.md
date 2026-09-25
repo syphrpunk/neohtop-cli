@@ -13,7 +13,7 @@ List processes with regex filtering and column sorting
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--filter` | `string` |  | Match against name, command, and PID — bare words match whole words; regex metacharacters switch to full regex |
+| `--filter` | `string` |  | Match name, command, and PID. Commas OR terms (chrome, node); quote a term to keep a comma in a regex. Predicates AND: cpu>, cpu>=, mem>, mem>= (K/M/G), pid:N |
 | `--user` | `string` |  | Only processes owned by this user |
 | `--sortBy` | `string` | `cpu` | Sort column |
 | `--order` | `string` | `desc` | Sort direction |
