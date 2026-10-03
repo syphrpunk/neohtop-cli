@@ -1,13 +1,13 @@
 ---
 name: neohtop-report
-description: "Aggregate report over the metrics store: hourly avg/peak series, top consumers, anomaly flags. Run `neohtop report --help` for usage details."
+description: "Aggregate report over the metrics store: hourly avg/peak series, top consumers, anomaly flags, RSS leak flags, and configured process groups. Run `neohtop report --help` for usage details."
 requires_bin: neohtop
 command: neohtop report
 ---
 
 # neohtop report
 
-Aggregate report over the metrics store: hourly avg/peak series, top consumers, anomaly flags
+Aggregate report over the metrics store: hourly avg/peak series, top consumers, anomaly flags, RSS leak flags, and configured process groups
 
 ## Options
 

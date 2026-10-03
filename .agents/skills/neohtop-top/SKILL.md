@@ -1,13 +1,13 @@
 ---
 name: neohtop-top
-description: Top N processes by CPU or memory. Run `neohtop top --help` for usage details.
+description: Top N processes by CPU or memory. On macOS, rows include gpu_time_ms when an AGX client accrued time during the sample window. Run `neohtop top --help` for usage details.
 requires_bin: neohtop
 command: neohtop top
 ---
 
 # neohtop top
 
-Top N processes by CPU or memory
+Top N processes by CPU or memory. On macOS, rows include gpu_time_ms when an AGX client accrued time during the sample window.
 
 ## Options
 

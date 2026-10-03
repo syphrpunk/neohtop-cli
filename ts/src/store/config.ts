@@ -17,11 +17,19 @@ export interface Config {
   }
   /** Name or command patterns floated by `top` and `processes`. */
   pins: string[]
+  /** Name or command patterns rolled up together in `report`. */
+  groups: ProcessGroup[]
+}
+
+export interface ProcessGroup {
+  name: string
+  patterns: string[]
 }
 
 export const DEFAULTS: Config = {
   record: { processLimit: 30, retentionDays: 30, sampleMs: 500 },
   pins: [],
+  groups: [],
 }
 
 export function configDir(): string {
@@ -41,7 +49,10 @@ export function ensureConfigDir(): string {
 
 /** Accept a partial or older config file. Unknown pins are dropped, not guessed. */
 export function normalizeConfig(raw: unknown): Config {
-  const obj = raw && typeof raw === 'object' ? (raw as { record?: unknown; pins?: unknown }) : {}
+  const obj =
+    raw && typeof raw === 'object'
+      ? (raw as { record?: unknown; pins?: unknown; groups?: unknown })
+      : {}
   const record =
     obj.record && typeof obj.record === 'object' ? (obj.record as Partial<Config['record']>) : {}
   const pins = Array.isArray(obj.pins)
@@ -50,7 +61,23 @@ export function normalizeConfig(raw: unknown): Config {
   return {
     record: { ...DEFAULTS.record, ...record },
     pins: pins.map((pin) => pin.trim()),
+    groups: parseGroups(obj.groups),
   }
+}
+
+function parseGroups(raw: unknown): ProcessGroup[] {
+  if (!Array.isArray(raw)) return []
+  const groups: ProcessGroup[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const name = (item as { name?: unknown }).name
+    const patterns = (item as { patterns?: unknown }).patterns
+    if (typeof name !== 'string' || name.trim().length === 0 || !Array.isArray(patterns)) continue
+    const kept = patterns.filter((pattern): pattern is string => typeof pattern === 'string' && pattern.trim().length > 0)
+    if (kept.length === 0) continue
+    groups.push({ name: name.trim(), patterns: kept.map((pattern) => pattern.trim()) })
+  }
+  return groups
 }
 
 export function loadConfig(): Config {

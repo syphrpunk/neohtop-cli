@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Database } from 'bun:sqlite'
 import type { ProcessInfo, SystemStats } from '../monitor/types.ts'
 import { insertSample, openDb } from './db.ts'
-import { reportAnomalies, reportHourly, reportTopConsumers, reportWindow } from './report.ts'
+import { reportAnomalies, reportGroups, reportHourly, reportLeaks, reportTopConsumers, reportWindow } from './report.ts'
+import { LEAK_DEFAULTS } from './footprint.ts'
 
 const baseSystem: SystemStats = {
   cpu_brand: 'test',
@@ -140,5 +141,38 @@ describe('report', () => {
     expect(anomalies.map((a) => a.type)).toEqual(['io_pressure', 'memory_pressure'])
     expect(anomalies[0]!.detail).toBe('I/O stall some avg10 22.5%')
     expect(anomalies[1]!.detail).toBe('memory stall some avg10 11%')
+  })
+
+  test('reportLeaks flags a named RSS climb and ignores a flat name', () => {
+    const step = LEAK_DEFAULTS.minimumSlope * 3600
+    for (let i = 0; i < 12; i++) {
+      const at = new Date(Date.UTC(2026, 7, 17, i, 0, 0)).toISOString()
+      record(db, at, {}, [
+        proc('climber', 1, 100 * 1024 * 1024 + i * step),
+        proc('flat', 1, 50 * 1024 * 1024),
+      ])
+    }
+    const leaks = reportLeaks(db, '2026-08-16T00:00:00.000Z')
+    expect(leaks.map((leak) => leak.name)).toEqual(['climber'])
+    expect(leaks[0]).toMatchObject({ metric: 'rss', samples: 12 })
+    expect(leaks[0]!.slope_bytes_per_s).toBeCloseTo(LEAK_DEFAULTS.minimumSlope, 0)
+  })
+
+  test('reportGroups scores matching names against the machine', () => {
+    record(db, '2026-08-17T00:00:00.000Z', {}, [
+      proc('chrome', 100, 8_000),
+      proc('other', 100, 8_000),
+    ])
+    const groups = reportGroups(db, '2026-08-16T00:00:00.000Z', [
+      { name: 'browsers', patterns: ['chrome'] },
+    ])
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.name).toBe('browsers')
+    expect(groups[0]!.metric).toBe('rss')
+    expect(groups[0]!.members.map((member) => member.name)).toEqual(['chrome'])
+    // 4 cores, 16000 byte RAM, 100% of one core, half of RAM
+    // cpu share 0.25, memory share 0.5 → score 37.5
+    expect(groups[0]!.score).toBe(37.5)
+    expect(groups[0]!.members[0]!.share).toBe(1)
   })
 })

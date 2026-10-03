@@ -12,7 +12,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { cpus, hostname } from 'node:os'
-import type { CoreTicks, PlatformSample, ProcessDetail, RawProc } from './types.ts'
+import type { CoreTicks, DiskCounters, PlatformSample, ProcessDetail, RawProc } from './types.ts'
 
 const PS_SCRIPT = `
 $ErrorActionPreference = 'Stop'
@@ -20,6 +20,10 @@ $now = Get-Date
 $os = Get-CimInstance Win32_OperatingSystem
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
 $disks = @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | Select-Object Size,FreeSpace)
+$phys = @()
+try {
+  $phys = @(Get-CimInstance Win32_PerfRawData_PerfDisk_PhysicalDisk | Select-Object Name,DiskReadBytesPersec,DiskWriteBytesPersec,DiskReadsPersec,DiskWritesPersec)
+} catch {}
 $net = @(Get-CimInstance Win32_PerfRawData_Tcpip_NetworkInterface | Select-Object BytesReceivedPersec,BytesSentPersec)
 $procs = @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize,VirtualSize,ThreadCount,CommandLine,KernelModeTime,UserModeTime,ReadTransferCount,WriteTransferCount,@{n='RuntimeSecs';e={ if ($_.CreationDate) { [int](($now - $_.CreationDate).TotalSeconds) } else { 0 } }})
 @{
@@ -30,6 +34,7 @@ $procs = @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcess
   osVersion = $os.Version
   uptimeSecs = [int](($now - $os.LastBootUpTime).TotalSeconds)
   disks = $disks
+  phys = $phys
   net = $net
   procs = $procs
 } | ConvertTo-Json -Depth 4 -Compress
@@ -43,6 +48,14 @@ interface RawWindows {
   osVersion?: string
   uptimeSecs?: number
   disks?: { Size?: number; FreeSpace?: number }[]
+  // Raw counters are cumulative. This class has no service-time base we trust, so latency stays absent.
+  phys?: {
+    Name?: string
+    DiskReadBytesPersec?: number
+    DiskWriteBytesPersec?: number
+    DiskReadsPersec?: number
+    DiskWritesPersec?: number
+  }[]
   net?: { BytesReceivedPersec?: number; BytesSentPersec?: number }[]
   procs?: {
     ProcessId?: number
@@ -108,6 +121,7 @@ export function buildSample(raw: RawWindows, coreTicks: CoreTicks[], host: strin
     diskTotal += d.Size ?? 0
     diskFree += d.FreeSpace ?? 0
   }
+  const disks = physicalDisks(raw.phys)
   let netRx = 0
   let netTx = 0
   for (const n of raw.net ?? []) {
@@ -135,7 +149,27 @@ export function buildSample(raw: RawWindows, coreTicks: CoreTicks[], host: strin
     osVersion: raw.osCaption ?? 'Windows',
     kernelVersion: raw.osVersion ?? '',
     procs,
+    ...(disks ? { disks } : {}),
   }
+}
+
+function physicalDisks(
+  rows: RawWindows['phys'],
+): DiskCounters[] | undefined {
+  if (!rows) return
+  const out: DiskCounters[] = []
+  for (const row of rows) {
+    const name = row.Name?.trim()
+    if (!name || name === '_Total') continue
+    out.push({
+      name,
+      readBytes: BigInt(Math.max(0, Math.round(row.DiskReadBytesPersec ?? 0))),
+      writeBytes: BigInt(Math.max(0, Math.round(row.DiskWriteBytesPersec ?? 0))),
+      readOps: BigInt(Math.max(0, Math.round(row.DiskReadsPersec ?? 0))),
+      writeOps: BigInt(Math.max(0, Math.round(row.DiskWritesPersec ?? 0))),
+    })
+  }
+  return out.length > 0 ? out : undefined
 }
 
 export function collect(): PlatformSample {

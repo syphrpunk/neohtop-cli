@@ -21,6 +21,15 @@ export interface ProcessInfo {
   /** bytes/s since last refresh (0 when the OS denies the counters) */
   disk_read_bytes: number
   disk_write_bytes: number
+  /**
+   * Milliseconds of GPU time accrued during the sample window.
+   * Omitted when the process has no counter on both refreshes.
+   * A measured 0 means a context was present and idle. macOS AGX only.
+   * Not stored by `record`.
+   */
+  gpu_time_ms?: number
+  /** Linux cgroup2 path. Omitted on cgroup1, macOS, and Windows. */
+  cgroup?: string
 }
 
 /** Expensive per-process fields fetched on demand (port of ProcessDetail) */
@@ -85,6 +94,24 @@ export interface SystemStats {
   gpu_power_watts?: number
   ane_power_watts?: number
   dram_power_watts?: number
+  /**
+   * Per-device rates between the last two refreshes. Omitted on the first
+   * refresh and when the platform has no counter. A present device with
+   * zero rates was measured idle. Latency is omitted when that direction
+   * had no operations, or when the OS has no service-time counter.
+   */
+  disk_devices?: DiskDevice[]
+}
+
+export interface DiskDevice {
+  name: string
+  read_bytes_per_s: number
+  write_bytes_per_s: number
+  read_iops: number
+  write_iops: number
+  /** Average service time over the interval, milliseconds. */
+  read_latency_ms?: number
+  write_latency_ms?: number
 }
 
 export type MemoryPressureLevel = 'normal' | 'warning' | 'critical'
@@ -115,6 +142,8 @@ export interface RawProc {
   cpuPct?: number
   /** cumulative CPU ticks utime+stime (Linux) */
   cpuTicks?: number
+  /** cgroup2 path (`0::` line). Absent on cgroup1 and on other platforms. */
+  cgroup?: string
 }
 
 export interface PlatformSample {
@@ -151,4 +180,22 @@ export interface PlatformSample {
   memoryPressureLevel?: MemoryPressureLevel
   /** Cumulative package energy in nanojoules. Monitor turns the delta into watts. */
   energyNj?: EnergyNj
+  /**
+   * Cumulative per-device counters. Absent when the platform could not
+   * read them. Monitor turns the delta into `disk_devices`.
+   */
+  disks?: DiskCounters[]
+  /** Cumulative AGX GPU time in nanoseconds, keyed by pid. Absent when unread. */
+  gpuTimeNs?: Map<number, bigint>
+}
+
+/** Cumulative per-device counters. Times are nanoseconds when the OS provides them. */
+export interface DiskCounters {
+  name: string
+  readBytes: bigint
+  writeBytes: bigint
+  readOps: bigint
+  writeOps: bigint
+  readTimeNs?: bigint
+  writeTimeNs?: bigint
 }

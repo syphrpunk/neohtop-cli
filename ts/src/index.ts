@@ -7,12 +7,20 @@ import pkg from '../package.json' with { type: 'json' }
 import { SORT_KEYS, FilterQueryError, filterProcesses, sortProcesses } from './filter/index.ts'
 import { splitPinned } from './filter/pins.ts'
 import { buildProcessTree } from './filter/tree.ts'
+import { HardwareError, hardwareInventory } from './monitor/hardware.ts'
 import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
 import { NetError, sampleNet } from './monitor/net.ts'
 import { configDir, configPath, dbPath, initConfig, loadConfig, logPath } from './store/config.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
 import { renderOpenMetrics } from './store/openmetrics.ts'
-import { reportAnomalies, reportHourly, reportTopConsumers, reportWindow } from './store/report.ts'
+import {
+  reportAnomalies,
+  reportGroups,
+  reportHourly,
+  reportLeaks,
+  reportTopConsumers,
+  reportWindow,
+} from './store/report.ts'
 import * as service from './store/service.ts'
 import { sparkline } from './view/sparkline.ts'
 
@@ -75,8 +83,26 @@ Cli.create('neohtop', {
   // (neohtop-<target>.gz); a no-op when running from source.
   update: Binary.github({ repository: 'syphrpunk/neohtop-cli' }),
 })
+  .command('hardware', {
+    description:
+      'On-demand hardware inventory: chip, core layout, memory, displays, battery health. Cached under ~/.config/neohtop. record and service never call this.',
+    options: z.object({
+      refresh: z.boolean().default(false).describe('Re-read the platform and replace the cache'),
+    }),
+    run(c) {
+      try {
+        return c.ok(hardwareInventory({ refresh: c.options.refresh }))
+      } catch (err) {
+        if (err instanceof HardwareError) {
+          return c.error({ code: 'HARDWARE_UNAVAILABLE', message: err.message })
+        }
+        throw err
+      }
+    },
+  })
   .command('system', {
-    description: 'System-wide stats: CPU, memory, disk, network, load, host info',
+    description:
+      'System-wide stats: CPU, memory, disk, per-device throughput and latency, network, load, host info',
     options: z.object({ sampleMs: listOptions.shape.sampleMs }),
     async run(c) {
       const { system } = await snapshot(c.options.sampleMs)
@@ -127,7 +153,8 @@ Cli.create('neohtop', {
     },
   })
   .command('processes', {
-    description: 'List processes with regex filtering and column sorting',
+    description:
+      'List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present. On Linux, cgroup is the cgroup2 path.',
     options: listOptions.extend({
       pin: z
         .string()
@@ -165,7 +192,8 @@ Cli.create('neohtop', {
     },
   })
   .command('top', {
-    description: 'Top N processes by CPU or memory',
+    description:
+      'Top N processes by CPU or memory. On macOS, rows include gpu_time_ms when an AGX client accrued time during the sample window.',
     options: z.object({
       by: z.enum(['cpu', 'memory']).default('cpu').describe('Ranking column'),
       count: z.coerce
@@ -405,7 +433,7 @@ Cli.create('neohtop', {
   })
   .command('report', {
     description:
-      'Aggregate report over the metrics store: hourly avg/peak series, top consumers, anomaly flags',
+      'Aggregate report over the metrics store: hourly avg/peak series, top consumers, anomaly flags, RSS leak flags, and configured process groups',
     options: z.object({
       hours: z.coerce.number().min(1).default(24).describe('Look-back window in hours'),
       top: z.coerce.number().int().min(1).default(10).describe('Top consumers to include'),
@@ -428,6 +456,8 @@ Cli.create('neohtop', {
         const hourly = reportHourly(db, since)
         const topConsumers = reportTopConsumers(db, since, c.options.top)
         const anomalies = reportAnomalies(db, since)
+        const leaks = reportLeaks(db, since)
+        const groups = reportGroups(db, since, loadConfig().groups)
 
         const n = hourly.reduce((a, h) => a + h.samples, 0)
         const wavg = (f: (h: (typeof hourly)[number]) => number) =>
@@ -459,6 +489,8 @@ Cli.create('neohtop', {
             hourly,
             top_consumers: topConsumers,
             anomalies,
+            leaks,
+            groups,
           },
           {
             cta: {

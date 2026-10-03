@@ -3,7 +3,7 @@
 // the series back for reporting.
 
 import { Database } from 'bun:sqlite'
-import type { ProcessInfo, SystemStats } from '../monitor/types.ts'
+import type { DiskDevice, ProcessInfo, SystemStats } from '../monitor/types.ts'
 import { dbPath, ensureConfigDir } from './config.ts'
 
 const SCHEMA = `
@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS system_samples (
   cpu_power_watts REAL,
   gpu_power_watts REAL,
   ane_power_watts REAL,
-  dram_power_watts REAL
+  dram_power_watts REAL,
+  disk_devices TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_system_samples_at ON system_samples(at);
 CREATE TABLE IF NOT EXISTS process_samples (
@@ -72,6 +73,7 @@ const ADDED_SYSTEM_COLUMNS: [name: string, type: string][] = [
   ['gpu_power_watts', 'REAL'],
   ['ane_power_watts', 'REAL'],
   ['dram_power_watts', 'REAL'],
+  ['disk_devices', 'TEXT'],
 ]
 
 /** Existing databases were created before these columns. CREATE IF NOT EXISTS will not add them. */
@@ -119,8 +121,9 @@ export function insertSample(
       battery_charge_percent, battery_charging,
       psi_cpu_some_avg10, psi_io_some_avg10, psi_memory_some_avg10,
       memory_pressure_level,
-      cpu_power_watts, gpu_power_watts, ane_power_watts, dram_power_watts
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      cpu_power_watts, gpu_power_watts, ane_power_watts, dram_power_watts,
+      disk_devices
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const insertProcess = db.prepare(`
     INSERT INTO process_samples (
@@ -160,6 +163,8 @@ export function insertSample(
   const gpuWatts = system.gpu_power_watts !== undefined ? system.gpu_power_watts : null
   const aneWatts = system.ane_power_watts !== undefined ? system.ane_power_watts : null
   const dramWatts = system.dram_power_watts !== undefined ? system.dram_power_watts : null
+  const diskDevices =
+    system.disk_devices !== undefined ? JSON.stringify(system.disk_devices) : null
 
   const run = db.transaction(() => {
     const { lastInsertRowid } = insertSystem.run(
@@ -192,6 +197,7 @@ export function insertSample(
       gpuWatts,
       aneWatts,
       dramWatts,
+      diskDevices,
     )
     const sampleId = Number(lastInsertRowid)
     for (const p of top) {
@@ -246,6 +252,7 @@ export interface HistoryRow {
   gpu_power_watts?: number
   ane_power_watts?: number
   dram_power_watts?: number
+  disk_devices?: DiskDevice[]
 }
 
 interface HistorySqlRow {
@@ -270,6 +277,7 @@ interface HistorySqlRow {
   gpu_power_watts: number | null
   ane_power_watts: number | null
   dram_power_watts: number | null
+  disk_devices: string | null
 }
 
 function historyRow(row: HistorySqlRow): HistoryRow {
@@ -300,6 +308,14 @@ function historyRow(row: HistorySqlRow): HistoryRow {
   if (row.gpu_power_watts != null) out.gpu_power_watts = row.gpu_power_watts
   if (row.ane_power_watts != null) out.ane_power_watts = row.ane_power_watts
   if (row.dram_power_watts != null) out.dram_power_watts = row.dram_power_watts
+  if (row.disk_devices != null) {
+    try {
+      const parsed = JSON.parse(row.disk_devices) as unknown
+      if (Array.isArray(parsed)) out.disk_devices = parsed as DiskDevice[]
+    } catch {
+      // A corrupt rollup is omitted. The rest of the sample stays readable.
+    }
+  }
   return out
 }
 
@@ -312,7 +328,8 @@ export function queryHistory(db: Database, sinceIso: string, limit: number): His
               battery_charge_percent, battery_charging,
               psi_cpu_some_avg10, psi_io_some_avg10, psi_memory_some_avg10,
               memory_pressure_level,
-              cpu_power_watts, gpu_power_watts, ane_power_watts, dram_power_watts
+              cpu_power_watts, gpu_power_watts, ane_power_watts, dram_power_watts,
+              disk_devices
        FROM system_samples WHERE at >= ? ORDER BY at DESC LIMIT ?`,
     )
     .all(sinceIso, limit) as HistorySqlRow[]

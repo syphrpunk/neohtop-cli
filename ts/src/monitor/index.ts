@@ -2,9 +2,18 @@
 // cumulative platform samples into rates and percentages.
 
 import { platform } from 'node:os'
+import { diskRates } from './disk.ts'
 import { powerWatts } from './energy.ts'
+import { gpuTimeDeltas } from './gpu.ts'
 import type { EnergyNj } from './energy.ts'
-import type { PlatformSample, ProcessDetail, ProcessInfo, SystemStats } from './types.ts'
+import type {
+  DiskCounters,
+  DiskDevice,
+  PlatformSample,
+  ProcessDetail,
+  ProcessInfo,
+  SystemStats,
+} from './types.ts'
 
 const CLK_TCK = 100
 
@@ -16,6 +25,8 @@ interface PrevSample {
   procTicks: Map<number, number>
   procDisk: Map<number, { read: number; write: number }>
   energyNj?: EnergyNj
+  disks?: DiskCounters[]
+  gpuTimeNs?: Map<number, bigint>
 }
 
 interface PlatformImpl {
@@ -44,6 +55,8 @@ export class Monitor {
   #netRxRate = 0
   #netTxRate = 0
   #power: Partial<Record<'cpu' | 'gpu' | 'ane' | 'dram', number>> = {}
+  #diskDevices: DiskDevice[] = []
+  #procGpuMs = new Map<number, number>()
   #procCpu = new Map<number, number>()
   #procDiskRate = new Map<number, { read: number; write: number }>()
 
@@ -65,6 +78,8 @@ export class Monitor {
       this.#netTxRate = Math.max(0, (sample.netTxTotal - prev.netTx) / elapsed)
     }
     this.#power = powerWatts(prev?.energyNj, sample.energyNj, elapsed)
+    this.#diskDevices = diskRates(prev?.disks, sample.disks ?? [], elapsed)
+    this.#procGpuMs = gpuTimeDeltas(prev?.gpuTimeNs, sample.gpuTimeNs, elapsed)
 
     // Per-core CPU% from tick deltas (Linux)
     if (sample.cpuPerCoreTicks) {
@@ -122,6 +137,8 @@ export class Monitor {
       procTicks,
       procDisk,
       ...(sample.energyNj ? { energyNj: sample.energyNj } : {}),
+      ...(sample.disks ? { disks: sample.disks } : {}),
+      ...(sample.gpuTimeNs ? { gpuTimeNs: sample.gpuTimeNs } : {}),
     }
     this.#sample = sample
   }
@@ -164,6 +181,7 @@ export class Monitor {
       process_count: s.procs.length,
       ...optionalSystemStats(s),
       ...powerFields(this.#power),
+      ...(this.#diskDevices.length > 0 ? { disk_devices: this.#diskDevices } : {}),
     }
   }
 
@@ -172,6 +190,7 @@ export class Monitor {
     if (!s) throw new Error('refresh() must be called before processes()')
     return s.procs.map((p) => {
       const disk = this.#procDiskRate.get(p.pid)
+      const gpu = this.#procGpuMs.get(p.pid)
       return {
         pid: p.pid,
         ppid: p.ppid,
@@ -186,6 +205,8 @@ export class Monitor {
         ...(p.vsizeBytes !== undefined ? { virtual_memory_bytes: p.vsizeBytes } : {}),
         disk_read_bytes: Math.round(disk?.read ?? 0),
         disk_write_bytes: Math.round(disk?.write ?? 0),
+        ...(gpu !== undefined ? { gpu_time_ms: gpu } : {}),
+        ...(p.cgroup !== undefined ? { cgroup: p.cgroup } : {}),
       }
     })
   }

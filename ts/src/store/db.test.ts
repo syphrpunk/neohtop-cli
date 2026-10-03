@@ -104,6 +104,16 @@ describe('metrics store', () => {
         battery_charging: false,
         cpu_power_watts: 4.5,
         ane_power_watts: 0,
+        disk_devices: [
+          {
+            name: 'disk0',
+            read_bytes_per_s: 100,
+            write_bytes_per_s: 0,
+            read_iops: 1.5,
+            write_iops: 0,
+            read_latency_ms: 0.2,
+          },
+        ],
       },
       [],
       { processLimit: 1, retentionDays: 30 },
@@ -118,7 +128,18 @@ describe('metrics store', () => {
     expect(rich.battery_charging).toBe(false)
     expect(rich.cpu_power_watts).toBe(4.5)
     expect(rich.ane_power_watts).toBe(0)
+    expect(rich.disk_devices).toEqual([
+      {
+        name: 'disk0',
+        read_bytes_per_s: 100,
+        write_bytes_per_s: 0,
+        read_iops: 1.5,
+        write_iops: 0,
+        read_latency_ms: 0.2,
+      },
+    ])
     expect(plain).not.toHaveProperty('cpu_power_watts')
+    expect(plain).not.toHaveProperty('disk_devices')
     db.close()
   })
 
@@ -157,6 +178,7 @@ describe('metrics store', () => {
     expect(names).toContain('psi_io_some_avg10')
     expect(names).toContain('memory_pressure_level')
     expect(names).toContain('cpu_power_watts')
+    expect(names).toContain('disk_devices')
     insertSample(
       db,
       new Date().toISOString(),

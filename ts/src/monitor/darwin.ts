@@ -6,6 +6,8 @@ import { cpus, hostname, release } from 'node:os'
 import { basename } from 'node:path'
 import * as ffi from './darwin_ffi.ts'
 import { readEnergy } from './darwin_energy.ts'
+import { parseIoregDisks } from './disk.ts'
+import { parseAgxGpuTime } from './gpu.ts'
 import type {
   CoreTicks,
   MemoryPressureLevel,
@@ -223,6 +225,29 @@ function collectBattery(): { chargePercent: number; charging: boolean } | undefi
   }
 }
 
+function collectGpuTime() {
+  try {
+    const text = sh('/usr/sbin/ioreg', ['-r', '-c', 'AGXDeviceUserClient', '-d', '0'])
+    const gpuTimeNs = parseAgxGpuTime(text)
+    return gpuTimeNs.size > 0 ? gpuTimeNs : undefined
+  } catch {
+    return
+  }
+}
+
+function collectDiskCounters() {
+  try {
+    // Depth-limited ioreg. The full `-l` tree is slow and is not required.
+    // No Full Disk Access: the hourly recorder can store this rollup.
+    const drivers = sh('/usr/sbin/ioreg', ['-r', '-c', 'IOBlockStorageDriver', '-d', '2'])
+    const media = sh('/usr/sbin/ioreg', ['-r', '-c', 'IOMedia', '-d', '0'])
+    const disks = parseIoregDisks(drivers, media)
+    return disks.length > 0 ? disks : undefined
+  } catch {
+    return
+  }
+}
+
 function collectDisk(): { total: number; used: number; free: number } {
   const line = sh('/bin/df', ['-k', '/']).split('\n')[1]
   const parts = line?.trim().split(/\s+/) ?? []
@@ -238,6 +263,8 @@ export function collect(): PlatformSample {
   const { used, free } = collectMemory(memoryTotal)
   const net = collectNet()
   const disk = collectDisk()
+  const disks = collectDiskCounters()
+  const gpuTimeNs = collectGpuTime()
   const swap = collectSwap()
   const battery = collectBattery()
   const memoryPressureLevel = collectMemoryPressure()
@@ -277,5 +304,7 @@ export function collect(): PlatformSample {
       : {}),
     ...(memoryPressureLevel ? { memoryPressureLevel } : {}),
     ...(energyNj ? { energyNj } : {}),
+    ...(disks ? { disks } : {}),
+    ...(gpuTimeNs ? { gpuTimeNs } : {}),
   }
 }

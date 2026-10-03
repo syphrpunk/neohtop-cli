@@ -4,6 +4,9 @@
 
 import type { Database } from 'bun:sqlite'
 import { availableParallelism } from 'node:os'
+import { compileFilter } from '../filter/index.ts'
+import type { ProcessGroup } from './config.ts'
+import { detectLeak, scoreGroup, type SeriesPoint } from './footprint.ts'
 
 export interface ReportWindow {
   hours: number
@@ -32,6 +35,32 @@ export interface TopConsumer {
   memory_avg_bytes: number
   memory_max_bytes: number
   users: string
+}
+
+export interface LeakFlag {
+  name: string
+  /** The store records RSS, not a physical footprint. */
+  metric: 'rss'
+  slope_bytes_per_s: number
+  r_squared: number
+  duration_secs: number
+  total_growth_bytes: number
+  samples: number
+}
+
+export interface GroupMemberReport {
+  name: string
+  cpu_avg: number
+  memory_avg_bytes: number
+  score: number
+  share: number
+}
+
+export interface GroupReport {
+  name: string
+  metric: 'rss'
+  score: number
+  members: GroupMemberReport[]
 }
 
 export interface Anomaly {
@@ -136,6 +165,117 @@ export function reportTopConsumers(db: Database, sinceIso: string, limit: number
  * - memory_pressure: macOS pressure level when present (warning or critical),
  *   else Linux PSI memory `some` avg10, else memory used above 92%
  */
+interface NameSample {
+  name: string
+  at: string
+  memory_bytes: number
+}
+
+/** Names whose RSS climbed in a straight line across the window. */
+export function reportLeaks(db: Database, sinceIso: string): LeakFlag[] {
+  const rows = db
+    .prepare(
+      `SELECT p.name, s.at, SUM(p.memory_bytes) AS memory_bytes
+       FROM process_samples p
+       JOIN system_samples s ON s.id = p.sample_id
+       WHERE s.at >= ?
+       GROUP BY p.name, s.id
+       ORDER BY p.name, s.at`,
+    )
+    .all(sinceIso) as NameSample[]
+
+  const byName = new Map<string, SeriesPoint[]>()
+  for (const row of rows) {
+    const series = byName.get(row.name) ?? []
+    series.push({ at: Date.parse(row.at), bytes: row.memory_bytes })
+    byName.set(row.name, series)
+  }
+
+  const leaks: LeakFlag[] = []
+  for (const [name, series] of byName) {
+    const found = detectLeak(series)
+    if (!found) continue
+    leaks.push({
+      name,
+      metric: 'rss',
+      slope_bytes_per_s: Math.round(found.slopeBytesPerSecond),
+      r_squared: Math.round(found.rSquared * 1000) / 1000,
+      duration_secs: Math.round(found.durationSecs),
+      total_growth_bytes: found.totalGrowthBytes,
+      samples: found.samples,
+    })
+  }
+  leaks.sort((a, b) => b.slope_bytes_per_s - a.slope_bytes_per_s || a.name.localeCompare(b.name))
+  return leaks
+}
+
+interface GroupRow {
+  name: string
+  command: string
+  sample_id: number
+  memory_total: number
+  cpu_usage_per_core: string
+  cpu_usage: number
+  memory_bytes: number
+}
+
+/** Latest-sample device size, and average CPU/RSS of names matching each configured group. */
+export function reportGroups(db: Database, sinceIso: string, groups: ProcessGroup[]): GroupReport[] {
+  if (groups.length === 0) return []
+  const rows = db
+    .prepare(
+      `SELECT p.name, p.command, s.id AS sample_id, s.memory_total, s.cpu_usage_per_core,
+              p.cpu_usage, p.memory_bytes
+       FROM process_samples p
+       JOIN system_samples s ON s.id = p.sample_id
+       WHERE s.at >= ?
+       ORDER BY s.at`,
+    )
+    .all(sinceIso) as GroupRow[]
+  if (rows.length === 0) return []
+
+  const latest = rows[rows.length - 1]!
+  let cores = 0
+  try {
+    cores = (JSON.parse(latest.cpu_usage_per_core) as unknown[]).length
+  } catch {
+    cores = 0
+  }
+  const device = { cores, totalBytes: latest.memory_total }
+
+  return groups.map((group) => {
+    const matchers = group.patterns.map((pattern) => compileFilter(pattern))
+    const totals = new Map<string, { cpu: number; memory: number; samples: Set<number> }>()
+    for (const row of rows) {
+      const hit = matchers.some((re) => re.test(row.name) || re.test(row.command))
+      if (!hit) continue
+      const acc = totals.get(row.name) ?? { cpu: 0, memory: 0, samples: new Set<number>() }
+      acc.cpu += row.cpu_usage
+      acc.memory += row.memory_bytes
+      acc.samples.add(row.sample_id)
+      totals.set(row.name, acc)
+    }
+    const members = [...totals.entries()].map(([name, acc]) => ({
+      name,
+      cpuPercent: acc.cpu / acc.samples.size,
+      memoryBytes: acc.memory / acc.samples.size,
+    }))
+    const scored = scoreGroup(members, device)
+    return {
+      name: group.name,
+      metric: 'rss' as const,
+      score: Math.round(scored.score * 10) / 10,
+      members: scored.members.map((member) => ({
+        name: member.name,
+        cpu_avg: Math.round(member.cpuPercent * 10) / 10,
+        memory_avg_bytes: Math.round(member.memoryBytes),
+        score: Math.round(member.score * 10) / 10,
+        share: Math.round(member.share * 1000) / 1000,
+      })),
+    }
+  })
+}
+
 export function reportAnomalies(db: Database, sinceIso: string): Anomaly[] {
   const rows = db
     .prepare(

@@ -11,4 +11,17 @@ describe('normalizeConfig', () => {
   test('keeps string pins and drops blanks', () => {
     expect(normalizeConfig({ pins: [' postgres ', '', 3, 'node'] }).pins).toEqual(['postgres', 'node'])
   })
+
+  test('keeps named groups and drops empty ones', () => {
+    expect(normalizeConfig({}).groups).toEqual([])
+    expect(
+      normalizeConfig({
+        groups: [
+          { name: ' browsers ', patterns: [' chrome ', ''] },
+          { name: '', patterns: ['x'] },
+          { name: 'empty', patterns: [] },
+        ],
+      }).groups,
+    ).toEqual([{ name: 'browsers', patterns: ['chrome'] }])
+  })
 })

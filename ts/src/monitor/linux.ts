@@ -3,6 +3,8 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { hostname, release } from 'node:os'
+import { parseCgroupPath } from './cgroup.ts'
+import { parseDiskstats } from './disk.ts'
 import type { CoreTicks, PlatformSample, ProcessDetail, RawProc } from './types.ts'
 
 const CLK_TCK = 100 // USER_HZ — 100 on every mainstream Linux
@@ -96,6 +98,12 @@ function collectProcs(uptimeSecs: number): RawProc[] {
         if (write) proc.diskWriteTotal = Number(write[1])
       } catch {
         // permission denied — leave undefined
+      }
+      try {
+        const cgroup = parseCgroupPath(readProc(`${entry}/cgroup`))
+        if (cgroup !== undefined) proc.cgroup = cgroup
+      } catch {
+        // exited, or /proc has no cgroup file
       }
       procs.push(proc)
     } catch {
@@ -192,6 +200,15 @@ function collectBattery(): { chargePercent: number; charging: boolean } | undefi
   }
 }
 
+function collectDiskCounters() {
+  try {
+    const disks = parseDiskstats(readProc('diskstats'))
+    return disks.length > 0 ? disks : undefined
+  } catch {
+    return
+  }
+}
+
 function collectDisk(): { total: number; used: number; free: number } {
   const line = execFileSync('df', ['-k', '/'], { encoding: 'utf8' }).split('\n')[1]
   const parts = line?.trim().split(/\s+/) ?? []
@@ -223,6 +240,7 @@ export function collect(): PlatformSample {
   const mem = collectMem()
   const net = collectNet()
   const disk = collectDisk()
+  const disks = collectDiskCounters()
   const cores = collectCoreTicks()
   const swap = collectSwap()
   const battery = collectBattery()
@@ -255,6 +273,7 @@ export function collect(): PlatformSample {
     ...(psiCpu !== undefined ? { psiCpuSomeAvg10: psiCpu } : {}),
     ...(psiIo !== undefined ? { psiIoSomeAvg10: psiIo } : {}),
     ...(psiMemory !== undefined ? { psiMemorySomeAvg10: psiMemory } : {}),
+    ...(disks ? { disks } : {}),
   }
 }
 

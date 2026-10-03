@@ -60,6 +60,25 @@ describe('windows buildSample', () => {
     expect(sample.batteryChargePercent).toBeUndefined()
     expect(sample.psiIoSomeAvg10).toBeUndefined()
     expect(sample.memoryPressureLevel).toBeUndefined()
+    expect(sample.disks).toBeUndefined()
+  })
+
+  test('physical disk counters skip the _Total row and omit latency', () => {
+    const sample = buildSample(
+      {
+        ...raw,
+        phys: [
+          { Name: '_Total', DiskReadBytesPersec: 9, DiskWriteBytesPersec: 9, DiskReadsPersec: 9, DiskWritesPersec: 9 },
+          { Name: '0 C:', DiskReadBytesPersec: 1000, DiskWriteBytesPersec: 2000, DiskReadsPersec: 3, DiskWritesPersec: 4 },
+        ],
+      },
+      ticks,
+      'winbox',
+    )
+    expect(sample.disks).toEqual([
+      { name: '0 C:', readBytes: 1000n, writeBytes: 2000n, readOps: 3n, writeOps: 4n },
+    ])
+    expect(sample.disks?.[0]).not.toHaveProperty('readTimeNs')
   })
 
   test('process rows convert 100ns CPU time to 10ms ticks', () => {
