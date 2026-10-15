@@ -2,6 +2,9 @@
 neohtop-cli
 neohtop-cli.exe
 neohtop-cli-*
+sloppytop-cli
+sloppytop-cli.exe
+sloppytop-cli-*
 
 # TypeScript port
 ts/node_modules/
@@ -13,7 +16,7 @@ ts/dist/
 
 # npm install artifacts (but keep the .js launcher)
 npm/bin/*
-!npm/bin/neohtop-cli.js
+!npm/bin/sloppytop-cli.js
 npm/node_modules/
 
 # OS files

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abdenasser/neohtop-cli/config"
-	"github.com/abdenasser/neohtop-cli/theme"
-	"github.com/abdenasser/neohtop-cli/types"
+	"github.com/syphrpunk/sloppytop/config"
+	"github.com/syphrpunk/sloppytop/theme"
+	"github.com/syphrpunk/sloppytop/types"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 )

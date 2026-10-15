@@ -195,7 +195,7 @@ func TestSaveAndLoad(t *testing.T) {
 		cfg := DefaultConfig()
 
 		// Simulate Save behavior: create directory if needed
-		configDir := filepath.Join(tmpDir, ".config", "neohtop-cli")
+		configDir := filepath.Join(tmpDir, ".config", "sloppytop-cli")
 		if err := os.MkdirAll(configDir, 0755); err != nil {
 			t.Fatalf("failed to create config dir: %v", err)
 		}
@@ -286,4 +286,27 @@ func TestConfigDefaults(t *testing.T) {
 			t.Errorf("refresh rate seems too slow: %d ms", cfg.RefreshRate)
 		}
 	})
+}
+
+func TestResolveConfigPath(t *testing.T) {
+	home := t.TempDir()
+	next := filepath.Join(home, ".config", "sloppytop-cli", "config.json")
+	legacy := filepath.Join(home, ".config", "neohtop-cli", "config.json")
+	present := map[string]bool{}
+	check := func(path string) bool { return present[path] }
+
+	if got := resolveConfigPath(home, check); got != next {
+		t.Fatalf("fresh home: got %s", got)
+	}
+	present[legacy] = true
+	if got := resolveConfigPath(home, check); got != legacy {
+		t.Fatalf("legacy only: got %s", got)
+	}
+	present[next] = true
+	if got := resolveConfigPath(home, check); got != next {
+		t.Fatalf("both present: got %s", got)
+	}
+	if got := resolveConfigPath("", check); got != "" {
+		t.Fatalf("empty home: got %q", got)
+	}
 }

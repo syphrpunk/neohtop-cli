@@ -6,8 +6,8 @@ import { logEvent } from './log.ts'
 
 describe('logEvent', () => {
   test('appends one line and folds newlines', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'neohtop-log-'))
-    const file = join(dir, 'nested', 'neohtop.log')
+    const dir = mkdtempSync(join(tmpdir(), 'sloppytop-log-'))
+    const file = join(dir, 'nested', 'sloppytop.log')
     logEvent('warn', 'proc', 'open files\nunavailable', file)
     const lines = readFileSync(file, 'utf8').trim().split('\n')
     expect(lines).toHaveLength(1)
@@ -15,8 +15,8 @@ describe('logEvent', () => {
   })
 
   test('the first call writes the info line to the same file', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'neohtop-log-'))
-    const file = join(dir, 'neohtop.log')
+    const dir = mkdtempSync(join(tmpdir(), 'sloppytop-log-'))
+    const file = join(dir, 'sloppytop.log')
     logEvent('error', 'kill', 'failed to signal pid 1', file)
     logEvent('info', 'record', 'sample 4 stored 3', file)
     const lines = readFileSync(file, 'utf8').trim().split('\n')

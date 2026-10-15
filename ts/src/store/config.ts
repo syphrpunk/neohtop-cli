@@ -1,6 +1,7 @@
-// Persistent user config — argo-style: everything lives under
-// ~/.config/neohtop/ (XDG_CONFIG_HOME respected): config.json, the
-// metrics SQLite DB, and the launchd job log.
+// Persistent user config. State lives under ~/.config/sloppytop/
+// (XDG_CONFIG_HOME respected): config.json, the metrics SQLite DB, and the
+// recorder log. An existing ~/.config/neohtop directory is kept so a rename
+// does not orphan recorded samples.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -32,13 +33,37 @@ export const DEFAULTS: Config = {
   groups: [],
 }
 
+export function configBase(): string {
+  return process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config')
+}
+
+/** Prefer the new directory. Keep the legacy directory when it is the only one present. */
+export function resolveConfigDir(base: string, exists: (path: string) => boolean = existsSync): string {
+  const next = join(base, 'sloppytop')
+  const legacy = join(base, 'neohtop')
+  if (exists(next) || !exists(legacy)) return next
+  return legacy
+}
+
 export function configDir(): string {
-  const base = process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config')
-  return join(base, 'neohtop')
+  return resolveConfigDir(configBase())
+}
+
+/** Prefer `name` in `dir`. Keep `legacyName` when it is the only file present. */
+export function resolveNamedFile(
+  dir: string,
+  name: string,
+  legacyName: string,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  const next = join(dir, name)
+  const legacy = join(dir, legacyName)
+  if (exists(next) || !exists(legacy)) return next
+  return legacy
 }
 
 export const configPath = () => join(configDir(), 'config.json')
-export const dbPath = () => join(configDir(), 'neohtop.db')
+export const dbPath = () => resolveNamedFile(configDir(), 'sloppytop.db', 'neohtop.db')
 export const logPath = () => join(configDir(), 'record.log')
 
 export function ensureConfigDir(): string {

@@ -27,7 +27,26 @@ func configPath() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "neohtop-cli", "config.json")
+	return resolveConfigPath(home, fileExists)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// resolveConfigPath prefers ~/.config/sloppytop-cli/config.json.
+// An existing ~/.config/neohtop-cli/config.json is kept when the new file is absent.
+func resolveConfigPath(home string, exists func(string) bool) string {
+	if home == "" {
+		return ""
+	}
+	next := filepath.Join(home, ".config", "sloppytop-cli", "config.json")
+	legacy := filepath.Join(home, ".config", "neohtop-cli", "config.json")
+	if exists(next) || !exists(legacy) {
+		return next
+	}
+	return legacy
 }
 
 // Load reads config from disk, returning defaults if not found

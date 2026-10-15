@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/abdenasser/neohtop-cli/model"
-	"github.com/abdenasser/neohtop-cli/monitor"
+	"github.com/syphrpunk/sloppytop/model"
+	"github.com/syphrpunk/sloppytop/monitor"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -18,7 +18,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "-v":
-			fmt.Printf("neohtop-cli %s\n", version)
+			fmt.Printf("sloppytop-cli %s\n", version)
 			os.Exit(0)
 		case "--json":
 			runJSON()
@@ -44,7 +44,7 @@ func main() {
 }
 
 // runJSON outputs a single snapshot of system stats and processes as JSON to stdout.
-// Useful for scripting: neohtop-cli --json | jq '.processes[] | select(.cpu_usage > 5)'
+// Useful for scripting: sloppytop-cli --json | jq '.processes[] | select(.cpu_usage > 5)'
 func runJSON() {
 	mon := monitor.New()
 	defer mon.Destroy()
@@ -147,17 +147,17 @@ func runJSON() {
 }
 
 func printUsage() {
-	fmt.Printf(`neohtop-cli %s — a beautiful terminal process monitor
+	fmt.Printf(`sloppytop-cli %s — a beautiful terminal process monitor
 
 Usage:
-  neohtop-cli            Launch the interactive TUI
-  neohtop-cli --json     Output system stats + processes as JSON (pipe to jq)
-  neohtop-cli --version  Print version
-  neohtop-cli --help     Show this help
+  sloppytop-cli            Launch the interactive TUI
+  sloppytop-cli --json     Output system stats + processes as JSON (pipe to jq)
+  sloppytop-cli --version  Print version
+  sloppytop-cli --help     Show this help
 
 Examples:
-  neohtop-cli --json | jq '.processes[] | select(.cpu_usage > 5)'
-  neohtop-cli --json | jq '.system.memory_used'
-  neohtop-cli --json | jq '[.processes[] | {name, cpu: .cpu_usage}] | sort_by(.cpu) | reverse[:10]'
+  sloppytop-cli --json | jq '.processes[] | select(.cpu_usage > 5)'
+  sloppytop-cli --json | jq '.system.memory_used'
+  sloppytop-cli --json | jq '[.processes[] | {name, cpu: .cpu_usage}] | sort_by(.cpu) | reverse[:10]'
 `, version)
 }

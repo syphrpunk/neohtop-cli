@@ -3,7 +3,7 @@ package filter
 import (
 	"sort"
 
-	"github.com/abdenasser/neohtop-cli/types"
+	"github.com/syphrpunk/sloppytop/types"
 )
 
 // BuildProcessTree arranges a flat process list into a depth-first tree order

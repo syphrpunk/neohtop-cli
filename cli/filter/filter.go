@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/abdenasser/neohtop-cli/types"
+	"github.com/syphrpunk/sloppytop/types"
 )
 
 // Config holds filter settings

@@ -17,10 +17,10 @@ const row: HistoryRow = {
 describe('renderOpenMetrics', () => {
   test('emits the six gauges and the sample time as a comment', () => {
     const text = renderOpenMetrics(row)
-    expect(text).toContain('# neohtop_sample_at 2026-09-25T12:00:00.000Z\n')
-    expect(text).toContain('# TYPE neohtop_cpu_usage_percent gauge\nneohtop_cpu_usage_percent 12.5\n')
-    expect(text).toContain('neohtop_network_rx_bytes_per_second 10\n')
-    expect(text).toContain('neohtop_process_count 80\n')
+    expect(text).toContain('# sloppytop_sample_at 2026-09-25T12:00:00.000Z\n')
+    expect(text).toContain('# TYPE sloppytop_cpu_usage_percent gauge\nsloppytop_cpu_usage_percent 12.5\n')
+    expect(text).toContain('sloppytop_network_rx_bytes_per_second 10\n')
+    expect(text).toContain('sloppytop_process_count 80\n')
     expect(text.endsWith('# EOF\n')).toBe(true)
   })
 })

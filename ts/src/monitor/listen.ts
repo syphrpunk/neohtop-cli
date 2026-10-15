@@ -141,7 +141,7 @@ function run(cmd: string, args: string[]): string {
   } catch (err) {
     const failure = err as { code?: string; status?: number; stdout?: string | Buffer; stderr?: string | Buffer }
     if (failure.code === 'ENOENT') {
-      throw new ListenError(`${cmd} is not available. neohtop listen does not escalate privileges.`)
+      throw new ListenError(`${cmd} is not available. sloppytop listen does not escalate privileges.`)
     }
     const stdout =
       typeof failure.stdout === 'string'
@@ -159,7 +159,7 @@ function run(cmd: string, args: string[]): string {
           : ''
     const detail = stderr.trim().split('\n')[0]
     throw new ListenError(
-      `${cmd} failed${detail ? `: ${detail}` : ''}. neohtop listen does not escalate privileges.`,
+      `${cmd} failed${detail ? `: ${detail}` : ''}. sloppytop listen does not escalate privileges.`,
     )
   }
 }

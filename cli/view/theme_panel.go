@@ -4,7 +4,7 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/abdenasser/neohtop-cli/theme"
+	"github.com/syphrpunk/sloppytop/theme"
 	"charm.land/lipgloss/v2"
 )
 

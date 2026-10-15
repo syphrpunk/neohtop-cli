@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/abdenasser/neohtop-cli/types"
+	"github.com/syphrpunk/sloppytop/types"
 )
 
 // SortProcesses sorts a slice of processes by the given config.

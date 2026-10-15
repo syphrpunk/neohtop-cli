@@ -30,7 +30,7 @@ describe('splitPinned', () => {
 
   test('a bare word does not match a command line that only echoes the pin', () => {
     const split = splitPinned(
-      [row('zsh', 'zsh -c "neohtop top --pin postgres"'), row('postgres', 'postgres: checkpointer')],
+      [row('zsh', 'zsh -c "sloppytop top --pin postgres"'), row('postgres', 'postgres: checkpointer')],
       ['postgres'],
     )
     expect(split.pinned.map((r) => r.name)).toEqual(['postgres'])

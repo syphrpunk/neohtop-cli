@@ -1,4 +1,4 @@
-module github.com/abdenasser/neohtop-cli
+module github.com/syphrpunk/sloppytop
 
 go 1.25.0
 

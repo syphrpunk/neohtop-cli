@@ -280,6 +280,8 @@ var processIconMap = map[string]string{
 	// ── System monitors (us!) ───────────────────────────────────────
 	"neohtop":       nfEye,
 	"neohtop-cli":   nfEye,
+	"sloppytop":     nfEye,
+	"sloppytop-cli": nfEye,
 	"htop":          nfEye,
 	"btop":          nfEye,
 	"top":           nfEye,

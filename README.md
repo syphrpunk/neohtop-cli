@@ -1,25 +1,24 @@
 <div align="center">
 
-# 👻 NeoHtop CLI
+# 👻 Sloppytop
 
 **A cross-platform terminal process monitor with btop-style visualizations**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![Release](https://img.shields.io/github/v/release/Abdenasser/neohtop-cli?color=purple)](https://github.com/Abdenasser/neohtop-cli/releases)
-[![npm](https://img.shields.io/npm/v/neohtop-cli?color=red)](https://www.npmjs.com/package/neohtop-cli)
+[![Release](https://img.shields.io/github/v/release/syphrpunk/neohtop-cli?color=purple)](https://github.com/syphrpunk/neohtop-cli/releases)
 
-The CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built with Go and the [Charm](https://charm.sh) ecosystem.
+A terminal process monitor — originally the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built with Go and the [Charm](https://charm.sh) ecosystem.
 
 [Installation](#installation) · [Features](#features) · [Keybindings](#keybindings) · [Themes](#themes) · [Configuration](#configuration)
 
 <br/>
 
-<img src="assets/demo.gif" alt="NeoHtop CLI Demo" width="820" />
+<img src="assets/demo.gif" alt="Sloppytop demo" width="820" />
 
 <br/>
 
-<img src="assets/neohtop-cli.JPG" alt="NeoHtop CLI Screenshot" width="820" />
+<img src="assets/neohtop-cli.JPG" alt="Sloppytop screenshot" width="820" />
 
 </div>
 
@@ -27,31 +26,21 @@ The CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built 
 
 ## Installation
 
-```bash
-bun install -g neohtop-cli
-```
-
-Or with npm:
-
-```bash
-npm install -g neohtop-cli
-```
-
-Or download a prebuilt binary from the [Releases page](https://github.com/Abdenasser/neohtop-cli/releases):
+Download a prebuilt TUI binary from this repo's [releases](https://github.com/syphrpunk/neohtop-cli/releases). The TypeScript CLI binary on the same release is `sloppytop`.
 
 <details>
 <summary><b>macOS</b></summary>
 
 ```bash
 # Apple Silicon
-curl -LO https://github.com/Abdenasser/neohtop-cli/releases/latest/download/neohtop-cli-macos-arm64.tar.gz
-tar xzf neohtop-cli-macos-arm64.tar.gz
-sudo mv neohtop-cli-macos-arm64 /usr/local/bin/neohtop-cli
+curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-macos-arm64.tar.gz
+tar xzf sloppytop-cli-macos-arm64.tar.gz
+sudo mv sloppytop-cli-macos-arm64 /usr/local/bin/sloppytop-cli
 
 # Intel
-curl -LO https://github.com/Abdenasser/neohtop-cli/releases/latest/download/neohtop-cli-macos-amd64.tar.gz
-tar xzf neohtop-cli-macos-amd64.tar.gz
-sudo mv neohtop-cli-macos-amd64 /usr/local/bin/neohtop-cli
+curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-macos-amd64.tar.gz
+tar xzf sloppytop-cli-macos-amd64.tar.gz
+sudo mv sloppytop-cli-macos-amd64 /usr/local/bin/sloppytop-cli
 ```
 
 </details>
@@ -61,14 +50,14 @@ sudo mv neohtop-cli-macos-amd64 /usr/local/bin/neohtop-cli
 
 ```bash
 # x86_64
-curl -LO https://github.com/Abdenasser/neohtop-cli/releases/latest/download/neohtop-cli-linux-amd64.tar.gz
-tar xzf neohtop-cli-linux-amd64.tar.gz
-sudo mv neohtop-cli-linux-amd64 /usr/local/bin/neohtop-cli
+curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-linux-amd64.tar.gz
+tar xzf sloppytop-cli-linux-amd64.tar.gz
+sudo mv sloppytop-cli-linux-amd64 /usr/local/bin/sloppytop-cli
 
 # ARM64
-curl -LO https://github.com/Abdenasser/neohtop-cli/releases/latest/download/neohtop-cli-linux-arm64.tar.gz
-tar xzf neohtop-cli-linux-arm64.tar.gz
-sudo mv neohtop-cli-linux-arm64 /usr/local/bin/neohtop-cli
+curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-linux-arm64.tar.gz
+tar xzf sloppytop-cli-linux-arm64.tar.gz
+sudo mv sloppytop-cli-linux-arm64 /usr/local/bin/sloppytop-cli
 ```
 
 </details>
@@ -76,7 +65,7 @@ sudo mv neohtop-cli-linux-arm64 /usr/local/bin/neohtop-cli
 <details>
 <summary><b>Windows</b></summary>
 
-Download [`neohtop-cli-windows-amd64.zip`](https://github.com/Abdenasser/neohtop-cli/releases/latest) and add the extracted folder to your PATH.
+Download [`sloppytop-cli-windows-amd64.zip`](https://github.com/syphrpunk/neohtop-cli/releases/latest) and add the extracted folder to your PATH.
 
 </details>
 
@@ -86,7 +75,7 @@ Download [`neohtop-cli-windows-amd64.zip`](https://github.com/Abdenasser/neohtop
 Requires [mise](https://mise.jdx.dev) (installs Go, bun, and just from `mise.toml`) and a C compiler for CGo on macOS.
 
 ```bash
-git clone https://github.com/Abdenasser/neohtop-cli.git
+git clone https://github.com/syphrpunk/neohtop-cli.git
 cd neohtop-cli
 mise install   # installs Go, bun, and just
 just build
@@ -132,7 +121,7 @@ Inspect details, kill processes, pin favorites to the top, toggle tree view
 <td>
 
 **JSON output**
-`neohtop-cli --json` pipes structured data to `jq` for scripting and dashboards
+`sloppytop-cli --json` pipes structured data to `jq` for scripting and dashboards
 
 </td>
 <td>
@@ -149,9 +138,9 @@ macOS, Linux, and Windows — no runtime dependencies
 ## Quick Start
 
 ```bash
-neohtop-cli          # launch the TUI
-neohtop-cli --json   # one-shot JSON snapshot
-neohtop-cli --help   # see all options
+sloppytop-cli          # launch the TUI
+sloppytop-cli --json   # one-shot JSON snapshot
+sloppytop-cli --help   # see all options
 ```
 
 Press `?` inside the TUI to see every keybinding.
@@ -222,20 +211,20 @@ Press `t` to open the theme selector with live color swatches.
 
 ```bash
 # top 10 by CPU
-neohtop-cli --json | jq '[.processes[] | {name, cpu: .cpu_usage}] | sort_by(.cpu) | reverse[:10]'
+sloppytop-cli --json | jq '[.processes[] | {name, cpu: .cpu_usage}] | sort_by(.cpu) | reverse[:10]'
 
 # memory usage
-neohtop-cli --json | jq '.system | {memory_used, memory_total, pct: (.memory_used/.memory_total*100|round)}'
+sloppytop-cli --json | jq '.system | {memory_used, memory_total, pct: (.memory_used/.memory_total*100|round)}'
 
 # watch mode
-watch -n2 'neohtop-cli --json | jq ".system.cpu_usage_per_core"'
+watch -n2 'sloppytop-cli --json | jq ".system.cpu_usage_per_core"'
 ```
 
 <br/>
 
 ## Configuration
 
-Settings persist at `~/.config/neohtop-cli/config.json`:
+Settings persist at `~/.config/sloppytop-cli/config.json`. An existing `~/.config/neohtop-cli/config.json` is kept when the new file is absent:
 
 ```json
 {
@@ -307,7 +296,7 @@ neohtop-cli/
 
 <br/>
 
-## NeoHtop CLI vs NeoHtop Desktop
+## Sloppytop vs NeoHtop Desktop
 
 | Feature | Desktop | CLI |
 |---|:---:|:---:|

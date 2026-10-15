@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// neohtop — agent-friendly system monitor CLI (TypeScript port of cli/, built on incur).
+// sloppytop — agent-friendly system monitor CLI (TypeScript port of cli/, built on incur).
 // Every command supports --format toon|json|yaml|md|jsonl, --llms, and MCP via incur.
 
 import { Binary, Cli, z } from 'incur'
@@ -83,17 +83,17 @@ function note(feature: string, message: string, level: LogLevel = 'info') {
   logEvent(level, feature, message)
 }
 
-Cli.create('neohtop', {
+Cli.create('sloppytop', {
   description:
     'System monitor for humans and agents — realtime process/CPU/memory/disk/network reporting',
   version: pkg.version,
   // Self-update for compiled binaries via GitHub release assets
-  // (neohtop-<target>.gz); a no-op when running from source.
+  // (sloppytop-<target>.gz on syphrpunk/neohtop-cli); a no-op when running from source.
   update: Binary.github({ repository: 'syphrpunk/neohtop-cli' }),
 })
   .command('hardware', {
     description:
-      'On-demand hardware inventory: chip, core layout, memory, displays, battery health, and CPU feature flags when the platform lists them. Cached under ~/.config/neohtop. record and service never call this.',
+      'On-demand hardware inventory: chip, core layout, memory, displays, battery health, and CPU feature flags when the platform lists them. Cached under ~/.config/sloppytop, or an existing ~/.config/neohtop directory. record and service never call this.',
     options: z.object({
       refresh: z.boolean().default(false).describe('Re-read the platform and replace the cache'),
     }),
@@ -410,7 +410,7 @@ Cli.create('neohtop', {
     },
   })
   .command('record', {
-    description: 'Take a snapshot and store it in the metrics SQLite DB (~/.config/neohtop)',
+    description: 'Take a snapshot and store it in the metrics SQLite DB (~/.config/sloppytop, or ~/.config/neohtop when that directory already exists)',
     async run(c) {
       const config = initConfig()
       try {
@@ -588,7 +588,7 @@ Cli.create('neohtop', {
   })
   .command('config', {
     description:
-      'Show effective config and storage paths (~/.config/neohtop). Command events append to neohtop.log.',
+      'Show effective config and storage paths (~/.config/sloppytop, or ~/.config/neohtop when that directory already exists). Command events append to sloppytop.log, or neohtop.log when that file already exists.',
     run() {
       const db = openDb()
       const info = dbInfo(db)

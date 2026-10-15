@@ -147,7 +147,7 @@ not a flag
   })
 
   test('the cache round-trips the allowlist and marks from_cache', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'neohtop-hw-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sloppytop-hw-'))
     const path = join(dir, 'hardware.json')
     const report = parseDarwinHardware(PROFILER, { memoryBytes: 100, collectedAt: '2026-10-03T00:00:00.000Z' })
     writeHardwareCache(path, { ...report, from_cache: true })
@@ -169,7 +169,7 @@ not a flag
   })
 
   test('a cache that already lists cpu_features is not rewritten from the live machine', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'neohtop-hw-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sloppytop-hw-'))
     const path = join(dir, 'hardware.json')
     const report = parseDarwinHardware(PROFILER, {
       memoryBytes: 100,
@@ -185,7 +185,7 @@ not a flag
   })
 
   test('a cache missing cpu_features is filled without moving collected_at', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'neohtop-hw-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sloppytop-hw-'))
     const path = join(dir, 'hardware.json')
     const report = parseDarwinHardware(PROFILER, { memoryBytes: 100, collectedAt: '2026-10-03T00:00:00.000Z' })
     expect(report.cpu_features).toBeUndefined()

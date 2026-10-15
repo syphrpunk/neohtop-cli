@@ -3,12 +3,12 @@ package model
 import (
 	"time"
 
-	"github.com/abdenasser/neohtop-cli/config"
-	"github.com/abdenasser/neohtop-cli/filter"
-	"github.com/abdenasser/neohtop-cli/monitor"
-	"github.com/abdenasser/neohtop-cli/theme"
-	"github.com/abdenasser/neohtop-cli/types"
-	"github.com/abdenasser/neohtop-cli/view"
+	"github.com/syphrpunk/sloppytop/config"
+	"github.com/syphrpunk/sloppytop/filter"
+	"github.com/syphrpunk/sloppytop/monitor"
+	"github.com/syphrpunk/sloppytop/theme"
+	"github.com/syphrpunk/sloppytop/types"
+	"github.com/syphrpunk/sloppytop/view"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -183,7 +183,7 @@ func (a *App) newView(content string) tea.View {
 // View renders the UI — layout: StatsBar → ToolBar → ProcessTable
 func (a *App) View() tea.View {
 	if !a.ready {
-		loading := lipgloss.NewStyle().Foreground(lipgloss.Color("#cba6f7")).Bold(true).Render("👻 NeoHtop CLI")
+		loading := lipgloss.NewStyle().Foreground(lipgloss.Color("#cba6f7")).Bold(true).Render("👻 Sloppytop")
 		dots := lipgloss.NewStyle().Foreground(lipgloss.Color("#6c7086")).Render("Loading system data...")
 		return a.newView("\n\n" + lipgloss.PlaceHorizontal(a.width, lipgloss.Center, loading) + "\n" + lipgloss.PlaceHorizontal(a.width, lipgloss.Center, dots))
 	}

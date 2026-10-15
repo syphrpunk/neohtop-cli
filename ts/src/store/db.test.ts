@@ -144,7 +144,7 @@ describe('metrics store', () => {
   })
 
   test('adds nullable columns to a database created before swap and battery', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'neohtop-db-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sloppytop-db-'))
     const path = join(dir, 'old.db')
     const old = new Database(path)
     old.run(`CREATE TABLE system_samples (

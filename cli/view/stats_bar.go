@@ -5,8 +5,8 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/abdenasser/neohtop-cli/theme"
-	"github.com/abdenasser/neohtop-cli/types"
+	"github.com/syphrpunk/sloppytop/theme"
+	"github.com/syphrpunk/sloppytop/types"
 	"charm.land/lipgloss/v2"
 )
 
@@ -270,7 +270,7 @@ func (s *StatsBar) Render(stats types.SystemStats, width int) string {
 
 	// ── Ghost emoji branding centered above panels with gradient ──
 	brandColors := []color.Color{th.Purple, th.Purple, th.Pink, th.Pink, th.Fuchsia, th.Fuchsia, th.Indigo}
-	brandText := "NeoHtop"
+	brandText := "Sloppytop"
 	var brandChars string
 	for i, ch := range brandText {
 		c := brandColors[i%len(brandColors)]

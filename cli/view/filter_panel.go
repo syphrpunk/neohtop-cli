@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abdenasser/neohtop-cli/filter"
-	"github.com/abdenasser/neohtop-cli/theme"
+	"github.com/syphrpunk/sloppytop/filter"
+	"github.com/syphrpunk/sloppytop/theme"
 	"charm.land/lipgloss/v2"
 )
 

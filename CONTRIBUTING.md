@@ -1,6 +1,6 @@
-# Contributing to NeoHtop CLI
+# Contributing to Sloppytop
 
-Thanks for your interest in contributing to NeoHtop CLI! Whether it's a bug fix, new feature, theme, or documentation improvement — all contributions are welcome.
+Thanks for your interest in contributing to Sloppytop! Whether it's a bug fix, new feature, theme, or documentation improvement — all contributions are welcome.
 
 ## Getting Started
 
@@ -14,8 +14,8 @@ Thanks for your interest in contributing to NeoHtop CLI! Whether it's a bug fix,
 
 ```bash
 # Fork and clone
-git clone https://github.com/<your-username>/neohtopcli.git
-cd neohtopcli
+git clone https://github.com/<your-username>/neohtop-cli.git
+cd neohtop-cli
 
 # Install the toolchain (Go, bun, just)
 mise install
@@ -24,7 +24,7 @@ mise install
 just build
 
 # Run
-./neohtop-cli
+./sloppytop-cli
 ```
 
 ### Development Build
@@ -49,7 +49,7 @@ cli/
 ├── monitor/           # OS-specific process & system data collection
 ├── theme/             # Color theme definitions
 ├── filter/            # Search, filter, and sort logic
-└── config/            # Persistent user settings (~/.config/neohtop-cli/)
+└── config/            # Persistent user settings (~/.config/sloppytop-cli/)
 ```
 
 ### Key Concepts
@@ -191,10 +191,10 @@ Icon lookup uses exact match → prefix match → first word match → fallback.
 
 ## Need Help?
 
-- Open a [GitHub issue](https://github.com/Abdenasser/neohtop-cli/issues) for bugs or feature requests
+- Open a [GitHub issue](https://github.com/syphrpunk/neohtop-cli/issues) for bugs or feature requests
 - Check existing issues before opening a new one
 - For questions about the Charm ecosystem, see [charm.sh/docs](https://charm.sh)
 
 ---
 
-Thanks for helping make NeoHtop CLI better! 👻
+Thanks for helping make Sloppytop better! 👻

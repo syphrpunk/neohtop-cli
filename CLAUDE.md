@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-NeoHtopCLI is a terminal-based process monitor — the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop). Built with Go (Bubble Tea v2 + Lip Gloss v2), pure Go system monitoring, and native OS APIs.
+Sloppytop is a terminal-based process monitor — the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop). Built with Go (Bubble Tea v2 + Lip Gloss v2), pure Go system monitoring, and native OS APIs.
 
 ## Quick Reference
 
@@ -10,7 +10,7 @@ Toolchain (Go, bun, just) is managed by [mise](https://mise.jdx.dev) — run `mi
 
 ```bash
 # Build & run (requires CGo on macOS)
-just build && ./neohtop-cli
+just build && ./sloppytop-cli
 
 # Dev build with race detector
 just dev
@@ -24,7 +24,7 @@ just deps
 
 ## TypeScript Port (ts/)
 
-`ts/` hosts the TypeScript port built on [incur](https://github.com/wevm/incur) (wevm's agent-first CLI framework) — see `ts/README.md` for port status. It reuses the Go `--json` field names so outputs stay compatible. Commands: `system`, `processes`, `top`, `tree`, `proc`, `snapshot`, `watch` (streaming), `kill`, plus persistence: `record`/`history`/`report` (SQLite metrics store via `bun:sqlite`; `report` = hourly aggregates, top consumers, anomaly flags, braille sparkline charts), `config`, and `service install|status|uninstall` (hourly recorder — launchd on macOS, systemd user timer on Linux). Monitors cover macOS (`bun:ffi` libproc), Linux (`/proc`), and Windows (PowerShell CIM). State lives in `~/.config/neohtop/`. All commands support `--format toon|json|yaml|md|jsonl`, `--llms`, and MCP; compiled release binaries self-update via `--update`. Native bun APIs only — no dependencies beyond incur. TUI will eventually use OpenTUI (low priority).
+`ts/` hosts the TypeScript port built on [incur](https://github.com/wevm/incur) (wevm's agent-first CLI framework) — see `ts/README.md` for port status. It reuses the Go `--json` field names so outputs stay compatible. Commands: `system`, `processes`, `top`, `tree`, `proc`, `snapshot`, `watch` (streaming), `kill`, plus persistence: `record`/`history`/`report` (SQLite metrics store via `bun:sqlite`; `report` = hourly aggregates, top consumers, anomaly flags, braille sparkline charts), `config`, and `service install|status|uninstall` (hourly recorder — launchd on macOS, systemd user timer on Linux). Monitors cover macOS (`bun:ffi` libproc), Linux (`/proc`), and Windows (PowerShell CIM). State lives in `~/.config/sloppytop/` (an existing `~/.config/neohtop/` directory is reused). All commands support `--format toon|json|yaml|md|jsonl`, `--llms`, and MCP; compiled release binaries self-update via `--update`. Native bun APIs only — no dependencies beyond incur. TUI will eventually use OpenTUI (low priority).
 
 ```bash
 just ts-setup   # bun install
@@ -69,7 +69,7 @@ cli/
 │   ├── theme.go         # Theme interface + registry
 │   └── catppuccin.go    # All theme definitions
 ├── filter/              # Search (regex), sort, and process tree logic
-├── config/              # Persistent config (~/.config/neohtop-cli/config.json)
+├── config/              # Persistent config (~/.config/sloppytop-cli/config.json)
 └── types/               # Shared type definitions (Process, SystemStats, SortConfig)
 ```
 
@@ -121,7 +121,7 @@ git tag -a v0.1.0 -m "Initial release"
 git push --tags
 ```
 
-This runs tests first, then builds binaries for macOS (arm64 + amd64), Linux (amd64 + arm64), and Windows (amd64), creates a GitHub Release with checksums, and publishes to npm + GitHub Packages.
+This runs tests first, then builds the Go TUI (`sloppytop-cli`) and the TypeScript CLI (`sloppytop`) for macOS, Linux, and Windows, and creates a GitHub Release with checksums. `.github/workflows/ci.yml` builds the Linux binaries on every push and pull request.
 
 ## Handoff protocol
 

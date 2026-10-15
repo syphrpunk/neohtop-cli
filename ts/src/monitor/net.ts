@@ -141,7 +141,7 @@ function run(cmd: string, args: string[]): string {
       err && typeof err === 'object' && 'stderr' in err ? String((err as { stderr?: unknown }).stderr) : ''
     const detail = stderr.trim().split('\n')[0]
     throw new NetError(
-      `${cmd} failed${detail ? `: ${detail}` : ''}. neohtop net does not escalate privileges.`,
+      `${cmd} failed${detail ? `: ${detail}` : ''}. sloppytop net does not escalate privileges.`,
     )
   }
 }
@@ -152,7 +152,7 @@ function collectDarwin(): NetSample[] {
   for (const text of [tcp, udp]) {
     if (!darwinNetstatOk(text)) {
       throw new NetError(
-        'netstat did not return per-connection byte counters. neohtop net does not escalate privileges.',
+        'netstat did not return per-connection byte counters. sloppytop net does not escalate privileges.',
       )
     }
   }
@@ -173,7 +173,7 @@ export function collectNetSamples(): NetSample[] {
       return collectLinux()
     case 'win32':
       throw new NetError(
-        'per-connection byte rates need an ETW trace on Windows, which neohtop net does not start. There is no unprivileged counter.',
+        'per-connection byte rates need an ETW trace on Windows, which sloppytop net does not start. There is no unprivileged counter.',
       )
     default:
       throw new NetError(`per-connection byte rates are not available on ${platform()}.`)

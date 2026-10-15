@@ -54,16 +54,16 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../neohtop-cli-${{ matrix.suffix }} .
+        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../sloppytop-cli-${{ matrix.suffix }} .
 
       - name: Compress binary
         run: |
-          tar czf neohtop-cli-${{ matrix.suffix }}.tar.gz neohtop-cli-${{ matrix.suffix }}
+          tar czf sloppytop-cli-${{ matrix.suffix }}.tar.gz sloppytop-cli-${{ matrix.suffix }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: neohtop-cli-${{ matrix.suffix }}
-          path: neohtop-cli-${{ matrix.suffix }}.tar.gz
+          name: sloppytop-cli-${{ matrix.suffix }}
+          path: sloppytop-cli-${{ matrix.suffix }}.tar.gz
 
   build-macos:
     needs: [test]
@@ -88,16 +88,16 @@ jobs:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
-        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../neohtop-cli-${{ matrix.suffix }} .
+        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../sloppytop-cli-${{ matrix.suffix }} .
 
       - name: Compress binary
         run: |
-          tar czf neohtop-cli-${{ matrix.suffix }}.tar.gz neohtop-cli-${{ matrix.suffix }}
+          tar czf sloppytop-cli-${{ matrix.suffix }}.tar.gz sloppytop-cli-${{ matrix.suffix }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: neohtop-cli-${{ matrix.suffix }}
-          path: neohtop-cli-${{ matrix.suffix }}.tar.gz
+          name: sloppytop-cli-${{ matrix.suffix }}
+          path: sloppytop-cli-${{ matrix.suffix }}.tar.gz
 
   build-windows:
     needs: [test]
@@ -115,22 +115,22 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../neohtop-cli-windows-amd64.exe .
+        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../sloppytop-cli-windows-amd64.exe .
 
       - name: Compress binary
         shell: bash
         run: |
-          7z a neohtop-cli-windows-amd64.zip neohtop-cli-windows-amd64.exe
+          7z a sloppytop-cli-windows-amd64.zip sloppytop-cli-windows-amd64.exe
 
       - uses: actions/upload-artifact@v4
         with:
-          name: neohtop-cli-windows-amd64
-          path: neohtop-cli-windows-amd64.zip
+          name: sloppytop-cli-windows-amd64
+          path: sloppytop-cli-windows-amd64.zip
 
   # TypeScript CLI (ts/) — standalone bun-compiled binaries.
   # Native compile per runner: bun canary can't download cross-targets.
   # Each leg also embeds incur's binary metadata (__INCUR_BINARY_*) and
-  # uploads a `neohtop-<incur-target>.gz` asset — the exact name+format
+  # uploads a `sloppytop-<incur-target>.gz` asset — the exact name+format
   # incur's `--update` GitHub provider looks for (gzip of the raw binary).
   build-ts:
     needs: [test]
@@ -180,8 +180,8 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           bun build --compile --minify src/index.ts \
-            --outfile "dist/neohtop-${{ matrix.suffix }}${{ matrix.exe }}" \
-            --define "__INCUR_BINARY_NAME__=\"neohtop\"" \
+            --outfile "dist/sloppytop-${{ matrix.suffix }}${{ matrix.exe }}" \
+            --define "__INCUR_BINARY_NAME__=\"sloppytop\"" \
             --define "__INCUR_BINARY_TARGET__=\"${{ matrix.incur_target }}\"" \
             --define "__INCUR_BINARY_VERSION__=\"${VERSION}\""
 
@@ -189,16 +189,16 @@ jobs:
         working-directory: ts/dist
         shell: bash
         run: |
-          tar czf neohtop-${{ matrix.suffix }}.tar.gz neohtop-${{ matrix.suffix }}${{ matrix.exe }}
+          tar czf sloppytop-${{ matrix.suffix }}.tar.gz sloppytop-${{ matrix.suffix }}${{ matrix.exe }}
           # self-update asset: gzip of the raw binary, incur canonical name
-          gzip -9 -c neohtop-${{ matrix.suffix }}${{ matrix.exe }} > neohtop-${{ matrix.incur_target }}${{ matrix.exe }}.gz
+          gzip -9 -c sloppytop-${{ matrix.suffix }}${{ matrix.exe }} > sloppytop-${{ matrix.incur_target }}${{ matrix.exe }}.gz
 
       - uses: actions/upload-artifact@v4
         with:
-          name: neohtop-ts-${{ matrix.suffix }}
+          name: sloppytop-ts-${{ matrix.suffix }}
           path: |
-            ts/dist/neohtop-${{ matrix.suffix }}.tar.gz
-            ts/dist/neohtop-${{ matrix.incur_target }}${{ matrix.exe }}.gz
+            ts/dist/sloppytop-${{ matrix.suffix }}.tar.gz
+            ts/dist/sloppytop-${{ matrix.incur_target }}${{ matrix.exe }}.gz
 
   release:
     needs: [build-linux, build-macos, build-windows, build-ts]
@@ -214,7 +214,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum neohtop* > checksums.txt
+          sha256sum sloppytop* > checksums.txt
           cat checksums.txt
 
       - name: Create GitHub Release
@@ -223,17 +223,17 @@ jobs:
           generate_release_notes: true
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: |
-            artifacts/neohtop-cli-linux-amd64.tar.gz
-            artifacts/neohtop-cli-linux-arm64.tar.gz
-            artifacts/neohtop-cli-macos-arm64.tar.gz
-            artifacts/neohtop-cli-macos-amd64.tar.gz
-            artifacts/neohtop-cli-windows-amd64.zip
-            artifacts/neohtop-macos-arm64.tar.gz
-            artifacts/neohtop-linux-amd64.tar.gz
-            artifacts/neohtop-linux-arm64.tar.gz
-            artifacts/neohtop-windows-amd64.tar.gz
-            artifacts/neohtop-darwin-arm64.gz
-            artifacts/neohtop-linux-x64-glibc-baseline.gz
-            artifacts/neohtop-linux-arm64-glibc.gz
-            artifacts/neohtop-windows-x64-baseline.exe.gz
+            artifacts/sloppytop-cli-linux-amd64.tar.gz
+            artifacts/sloppytop-cli-linux-arm64.tar.gz
+            artifacts/sloppytop-cli-macos-arm64.tar.gz
+            artifacts/sloppytop-cli-macos-amd64.tar.gz
+            artifacts/sloppytop-cli-windows-amd64.zip
+            artifacts/sloppytop-macos-arm64.tar.gz
+            artifacts/sloppytop-linux-amd64.tar.gz
+            artifacts/sloppytop-linux-arm64.tar.gz
+            artifacts/sloppytop-windows-amd64.tar.gz
+            artifacts/sloppytop-darwin-arm64.gz
+            artifacts/sloppytop-linux-x64-glibc-baseline.gz
+            artifacts/sloppytop-linux-arm64-glibc.gz
+            artifacts/sloppytop-windows-x64-baseline.exe.gz
             artifacts/checksums.txt

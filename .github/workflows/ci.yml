@@ -27,13 +27,13 @@ jobs:
         working-directory: cli
         env:
           CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w -X main.version=${{ github.sha }}" -o ../neohtop-cli .
+        run: go build -ldflags="-s -w -X main.version=${{ github.sha }}" -o ../sloppytop-cli .
       - name: Smoke
-        run: ./neohtop-cli --help
+        run: ./sloppytop-cli --help
       - uses: actions/upload-artifact@v4
         with:
-          name: neohtop-cli-linux-amd64
-          path: neohtop-cli
+          name: sloppytop-cli-linux-amd64
+          path: sloppytop-cli
 
   ts:
     runs-on: ubuntu-latest
@@ -54,14 +54,14 @@ jobs:
         working-directory: ts
         run: |
           bun build --compile --minify src/index.ts \
-            --outfile dist/neohtop \
-            --define "__INCUR_BINARY_NAME__=\"neohtop\"" \
+            --outfile dist/sloppytop \
+            --define "__INCUR_BINARY_NAME__=\"sloppytop\"" \
             --define "__INCUR_BINARY_TARGET__=\"linux-x64-glibc-baseline\"" \
             --define "__INCUR_BINARY_VERSION__=\"ci\""
       - name: Smoke
         working-directory: ts
-        run: ./dist/neohtop --help
+        run: ./dist/sloppytop --help
       - uses: actions/upload-artifact@v4
         with:
-          name: neohtop-linux-amd64
-          path: ts/dist/neohtop
+          name: sloppytop-linux-amd64
+          path: ts/dist/sloppytop

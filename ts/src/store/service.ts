@@ -1,15 +1,17 @@
 // Scheduled metrics recorder — launchd user agent on macOS, systemd user
-// timer on Linux. Both run `neohtop record` on an interval with absolute
+// timer on Linux. Both run `sloppytop record` on an interval with absolute
 // paths (neither scheduler inherits a useful PATH).
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { logPath } from './config.ts'
+import { dbPath, logPath } from './config.ts'
 
-export const LABEL = 'com.syphrpunk.neohtop.record'
-export const UNIT = 'neohtop-record'
+export const LABEL = 'com.syphrpunk.sloppytop.record'
+export const LEGACY_LABEL = 'com.syphrpunk.neohtop.record'
+export const UNIT = 'sloppytop-record'
+export const LEGACY_UNIT = 'neohtop-record'
 
 export const plistPath = () => join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`)
 
@@ -17,6 +19,9 @@ const systemdUserDir = () =>
   join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'systemd', 'user')
 export const servicePath = () => join(systemdUserDir(), `${UNIT}.service`)
 export const timerPath = () => join(systemdUserDir(), `${UNIT}.timer`)
+const legacyPlistPath = () => join(homedir(), 'Library', 'LaunchAgents', `${LEGACY_LABEL}.plist`)
+const legacyServicePath = () => join(systemdUserDir(), `${LEGACY_UNIT}.service`)
+const legacyTimerPath = () => join(systemdUserDir(), `${LEGACY_UNIT}.timer`)
 
 /** Scheduler name + identifier for the current platform (for display). */
 export function scheduler(): { kind: 'launchd' | 'systemd'; name: string } {
@@ -75,7 +80,7 @@ function unitQuote(arg: string): string {
 
 export function renderServiceUnit(args: string[]): string {
   return `[Unit]
-Description=neohtop metrics recorder (one sample into ~/.config/neohtop/neohtop.db)
+Description=sloppytop metrics recorder (one sample into ${dbPath()})
 
 [Service]
 Type=oneshot
@@ -87,7 +92,7 @@ StandardError=append:${logPath()}
 
 export function renderTimerUnit(intervalSecs: number): string {
   return `[Unit]
-Description=Run the neohtop metrics recorder every ${intervalSecs}s
+Description=Run the sloppytop metrics recorder every ${intervalSecs}s
 
 [Timer]
 OnBootSec=2min
@@ -118,9 +123,26 @@ export interface InstallResult {
   command: string[]
 }
 
+function removeLegacyLaunchd(): boolean {
+  launchctl(['bootout', `${domain()}/${LEGACY_LABEL}`])
+  const path = legacyPlistPath()
+  const existed = existsSync(path)
+  rmSync(path, { force: true })
+  return existed
+}
+
+function removeLegacySystemd(): boolean {
+  const existed = existsSync(legacyServicePath()) || existsSync(legacyTimerPath())
+  if (existed) systemctl(['disable', '--now', `${LEGACY_UNIT}.timer`])
+  rmSync(legacyServicePath(), { force: true })
+  rmSync(legacyTimerPath(), { force: true })
+  return existed
+}
+
 export function install(intervalSecs: number): InstallResult {
   const command = recordCommand()
   if (process.platform === 'darwin') {
+    removeLegacyLaunchd()
     const path = plistPath()
     mkdirSync(join(homedir(), 'Library', 'LaunchAgents'), { recursive: true })
     writeFileSync(path, renderPlist(command, intervalSecs))
@@ -133,6 +155,7 @@ export function install(intervalSecs: number): InstallResult {
     mkdirSync(systemdUserDir(), { recursive: true })
     writeFileSync(servicePath(), renderServiceUnit(command))
     writeFileSync(timerPath(), renderTimerUnit(intervalSecs))
+    removeLegacySystemd()
     const reload = systemctl(['daemon-reload'])
     if (!reload.ok) throw new Error(`systemctl daemon-reload failed: ${reload.output}`)
     const enable = systemctl(['enable', '--now', `${UNIT}.timer`])
@@ -146,15 +169,21 @@ export function uninstall(): { scheduler: 'launchd' | 'systemd'; removed: boolea
   if (process.platform === 'darwin') {
     launchctl(['bootout', `${domain()}/${LABEL}`])
     const path = plistPath()
-    const existed = existsSync(path)
+    const existed = existsSync(path) || existsSync(legacyPlistPath())
     rmSync(path, { force: true })
+    removeLegacyLaunchd()
     return { scheduler: 'launchd', removed: existed }
   }
   if (process.platform === 'linux') {
     systemctl(['disable', '--now', `${UNIT}.timer`])
-    const existed = existsSync(servicePath()) || existsSync(timerPath())
+    const existed =
+      existsSync(servicePath()) ||
+      existsSync(timerPath()) ||
+      existsSync(legacyServicePath()) ||
+      existsSync(legacyTimerPath())
     rmSync(servicePath(), { force: true })
     rmSync(timerPath(), { force: true })
+    removeLegacySystemd()
     systemctl(['daemon-reload'])
     return { scheduler: 'systemd', removed: existed }
   }

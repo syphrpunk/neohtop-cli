@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/abdenasser/neohtop-cli/types"
+	"github.com/syphrpunk/sloppytop/types"
 )
 
 func TestBuildProcessTree(t *testing.T) {

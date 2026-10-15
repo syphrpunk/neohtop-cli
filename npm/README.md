@@ -1,21 +1,21 @@
-# 👻 NeoHtop CLI
+# 👻 Sloppytop
 
 **A cross-platform terminal process monitor with btop-style visualizations**
 
-The CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built with Go and the [Charm](https://charm.sh) ecosystem.
+A terminal process monitor — originally the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built with Go and the [Charm](https://charm.sh) ecosystem.
 
-![NeoHtop CLI](https://raw.githubusercontent.com/Abdenasser/neohtop-cli/main/assets/neohtop-cli.JPG)
+![Sloppytop](https://raw.githubusercontent.com/syphrpunk/neohtop-cli/main/assets/neohtop-cli.JPG)
 
 ## Install
 
 ```bash
-bun install -g neohtop-cli
+bun install -g sloppytop-cli
 ```
 
 Or with npm:
 
 ```bash
-npm install -g neohtop-cli
+npm install -g sloppytop-cli
 ```
 
 The package downloads the prebuilt binary for your platform on install (or on first run if install scripts are disabled, as they are by default under bun).
@@ -23,9 +23,9 @@ The package downloads the prebuilt binary for your platform on install (or on fi
 ## Usage
 
 ```bash
-neohtop-cli          # launch the TUI
-neohtop-cli --json   # one-shot JSON snapshot
-neohtop-cli --help   # see all options
+sloppytop-cli          # launch the TUI
+sloppytop-cli --json   # one-shot JSON snapshot
+sloppytop-cli --help   # see all options
 ```
 
 ## Features
@@ -55,9 +55,9 @@ neohtop-cli --help   # see all options
 
 ## Links
 
-- [GitHub](https://github.com/Abdenasser/neohtop-cli) — full docs, screenshots, and source
+- [GitHub](https://github.com/syphrpunk/neohtop-cli) — full docs, screenshots, and source
 - [NeoHtop Desktop](https://github.com/Abdenasser/NeoHtop) — the GUI version
-- [Releases](https://github.com/Abdenasser/neohtop-cli/releases) — prebuilt binaries
+- [Releases](https://github.com/syphrpunk/neohtop-cli/releases) — prebuilt binaries
 
 ## License
 
