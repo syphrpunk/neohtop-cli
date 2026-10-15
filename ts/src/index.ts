@@ -13,6 +13,7 @@ import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
 import { ListenError, listeningSockets } from './monitor/listen.ts'
 import { NetError, sampleNet } from './monitor/net.ts'
 import { configDir, configPath, dbPath, initConfig, loadConfig, logPath } from './store/config.ts'
+import { eventLogPath, logEvent, type LogLevel } from './store/log.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
 import { renderOpenMetrics } from './store/openmetrics.ts'
 import {
@@ -77,6 +78,11 @@ function badFilter(err: unknown): { code: 'BAD_FILTER'; message: string } | null
   return null
 }
 
+/** Best-effort audit line for every command. Output stays on stdout. */
+function note(feature: string, message: string, level: LogLevel = 'info') {
+  logEvent(level, feature, message)
+}
+
 Cli.create('neohtop', {
   description:
     'System monitor for humans and agents — realtime process/CPU/memory/disk/network reporting',
@@ -93,11 +99,15 @@ Cli.create('neohtop', {
     }),
     run(c) {
       try {
-        return c.ok(hardwareInventory({ refresh: c.options.refresh }))
+        const report = hardwareInventory({ refresh: c.options.refresh })
+        note('hardware', report.from_cache ? 'cache hit' : 'fresh inventory')
+        return c.ok(report)
       } catch (err) {
         if (err instanceof HardwareError) {
+          note('hardware', err.message, 'error')
           return c.error({ code: 'HARDWARE_UNAVAILABLE', message: err.message })
         }
+        note('hardware', (err as Error).message, 'error')
         throw err
       }
     },
@@ -108,6 +118,7 @@ Cli.create('neohtop', {
     options: z.object({ sampleMs: listOptions.shape.sampleMs }),
     async run(c) {
       const { system } = await snapshot(c.options.sampleMs)
+      note('system', `cpu ${system.cpu_usage_total} processes ${system.process_count}`)
       return c.ok(system, {
         cta: {
           commands: [
@@ -141,6 +152,7 @@ Cli.create('neohtop', {
       try {
         const rows = await sampleNet(c.options.sampleMs)
         const shown = c.options.limit > 0 ? rows.slice(0, c.options.limit) : rows
+        note('net', `${shown.length} connections`)
         return c.ok(
           { count: shown.length, sample_ms: c.options.sampleMs, connections: shown },
           {
@@ -150,7 +162,10 @@ Cli.create('neohtop', {
           },
         )
       } catch (err) {
-        if (err instanceof NetError) return c.error({ code: 'NET_UNAVAILABLE', message: err.message })
+        if (err instanceof NetError) {
+          note('net', err.message, 'error')
+          return c.error({ code: 'NET_UNAVAILABLE', message: err.message })
+        }
         throw err
       }
     },
@@ -161,6 +176,7 @@ Cli.create('neohtop', {
     run(c) {
       try {
         const sockets = listeningSockets()
+        note('listen', `${sockets.length} sockets`)
         return c.ok(
           { count: sockets.length, sockets },
           {
@@ -171,6 +187,7 @@ Cli.create('neohtop', {
         )
       } catch (err) {
         if (err instanceof ListenError) {
+          note('listen', err.message, 'error')
           return c.error({ code: 'LISTEN_UNAVAILABLE', message: err.message })
         }
         throw err
@@ -200,9 +217,13 @@ Cli.create('neohtop', {
         rows = arrangePins(sorted, resolvePins(c.options.pin), c.options.limit)
       } catch (err) {
         const bad = badFilter(err)
-        if (bad) return c.error(bad)
+        if (bad) {
+          note('processes', bad.message, 'error')
+          return c.error(bad)
+        }
         throw err
       }
+      note('processes', `${rows.length} of ${processes.length}`)
       return c.ok(
         { count: rows.length, total: processes.length, processes: rows },
         {
@@ -239,6 +260,7 @@ Cli.create('neohtop', {
       const { system, processes } = await snapshot(c.options.sampleMs)
       const sorted = sortProcesses(processes, c.options.by, 'desc')
       const rows = arrangePins(sorted, resolvePins(c.options.pin), c.options.count)
+      note('top', `${rows.length} rows by ${c.options.by}`)
       return {
         cpu_usage_total: system.cpu_usage_total,
         memory_used: system.memory_used,
@@ -272,10 +294,14 @@ Cli.create('neohtop', {
         matched = filterProcesses(processes, c.options.filter, c.options.user)
       } catch (err) {
         const bad = badFilter(err)
-        if (bad) return c.error(bad)
+        if (bad) {
+          note('tree', bad.message, 'error')
+          return c.error(bad)
+        }
         throw err
       }
       const rows = buildProcessTree(matched)
+      note('tree', `${rows.length} processes`)
       return {
         count: rows.length,
         processes: rows.map((p) => ({
@@ -307,12 +333,16 @@ Cli.create('neohtop', {
     async run(c) {
       const { processes } = await snapshot(500)
       const proc = processes.find((p) => p.pid === c.args.pid)
-      if (!proc)
+      if (!proc) {
+        note('proc', `pid ${c.args.pid} not found`, 'error')
         return c.error({ code: 'NOT_FOUND', message: `no process with pid ${c.args.pid}` })
+      }
       const children = processes.filter((p) => p.ppid === proc.pid).map((p) => p.pid)
       const parent = processes.find((p) => p.pid === proc.ppid)
       const detail = await processDetail(proc.pid)
       const files = c.options.files ? openFiles(proc.pid) : undefined
+      if (c.options.files && !files) note('proc', `pid ${proc.pid} open files unavailable`, 'warn')
+      else note('proc', `pid ${proc.pid}${files ? ` files ${files.length}` : ''}`)
       return c.ok(
         {
           ...proc,
@@ -335,6 +365,7 @@ Cli.create('neohtop', {
     options: z.object({ sampleMs: listOptions.shape.sampleMs }),
     async run(c) {
       const { system, processes } = await snapshot(c.options.sampleMs)
+      note('snapshot', `${processes.length} processes`)
       return { version: pkg.version, system, processes }
     },
   })
@@ -357,9 +388,13 @@ Cli.create('neohtop', {
         filterProcesses([], c.options.filter)
       } catch (err) {
         const bad = badFilter(err)
-        if (bad) return c.error(bad)
+        if (bad) {
+          note('watch', bad.message, 'error')
+          return c.error(bad)
+        }
         throw err
       }
+      note('watch', `interval ${c.options.intervalMs}ms`)
       const mon = await Monitor.create()
       mon.refresh()
       for (let seq = 1; c.options.count === 0 || seq <= c.options.count; seq++) {
@@ -378,28 +413,34 @@ Cli.create('neohtop', {
     description: 'Take a snapshot and store it in the metrics SQLite DB (~/.config/neohtop)',
     async run(c) {
       const config = initConfig()
-      const { system, processes } = await snapshot(config.record.sampleMs)
-      const db = openDb()
       try {
-        const at = new Date().toISOString()
-        const result = insertSample(db, at, system, processes, config.record)
-        return c.ok(
-          {
-            recorded: true,
-            sample_id: result.sampleId,
-            at,
-            processes_stored: result.processesStored,
-            pruned: result.pruned,
-            db_path: dbPath(),
-          },
-          {
-            cta: {
-              commands: [{ command: 'history', description: 'Query recorded samples' }],
+        const { system, processes } = await snapshot(config.record.sampleMs)
+        const db = openDb()
+        try {
+          const at = new Date().toISOString()
+          const result = insertSample(db, at, system, processes, config.record)
+          note('record', `sample ${result.sampleId} stored ${result.processesStored}`)
+          return c.ok(
+            {
+              recorded: true,
+              sample_id: result.sampleId,
+              at,
+              processes_stored: result.processesStored,
+              pruned: result.pruned,
+              db_path: dbPath(),
             },
-          },
-        )
-      } finally {
-        db.close()
+            {
+              cta: {
+                commands: [{ command: 'history', description: 'Query recorded samples' }],
+              },
+            },
+          )
+        } finally {
+          db.close()
+        }
+      } catch (err) {
+        note('record', (err as Error).message, 'error')
+        throw err
       }
     },
   })
@@ -430,11 +471,14 @@ Cli.create('neohtop', {
         const rows = queryHistory(db, since, c.options.openmetrics ? 1 : c.options.limit)
         if (c.options.openmetrics) {
           const latest = rows[0]
-          if (!latest)
+          if (!latest) {
+            note('history', `no samples in the last ${c.options.hours}h`, 'error')
             return c.error({
               code: 'NO_DATA',
               message: `no samples in the last ${c.options.hours}h — run 'record' once or 'service install' for hourly recording`,
             })
+          }
+          note('history', 'openmetrics')
           return renderOpenMetrics(latest)
         }
         const samples = c.options.processes
@@ -451,6 +495,7 @@ Cli.create('neohtop', {
               load_1: sparkline(chrono.map((r) => r.load_1)),
             }
           : undefined
+        note('history', `${rows.length} samples`)
         return {
           ...dbInfo(db),
           window_hours: c.options.hours,
@@ -479,11 +524,13 @@ Cli.create('neohtop', {
       try {
         const since = new Date(Date.now() - c.options.hours * 3_600_000).toISOString()
         const window = reportWindow(db, since)
-        if (!window)
+        if (!window) {
+          note('report', `no samples in the last ${c.options.hours}h`, 'error')
           return c.error({
             code: 'NO_DATA',
             message: `no samples in the last ${c.options.hours}h — run 'record' once or 'service install' for hourly recording`,
           })
+        }
         window.hours = c.options.hours
         const hourly = reportHourly(db, since)
         const topConsumers = reportTopConsumers(db, since, c.options.top)
@@ -513,6 +560,7 @@ Cli.create('neohtop', {
               load_1: sparkline(hourly.map((h) => h.load1_avg)),
             }
           : undefined
+        note('report', `${hourly.length} hours, ${anomalies.length} anomalies, ${leaks.length} leaks`)
         return c.ok(
           {
             window,
@@ -539,14 +587,22 @@ Cli.create('neohtop', {
     },
   })
   .command('config', {
-    description: 'Show effective config and storage paths (~/.config/neohtop)',
+    description:
+      'Show effective config and storage paths (~/.config/neohtop). Command events append to neohtop.log.',
     run() {
       const db = openDb()
       const info = dbInfo(db)
       db.close()
+      note('config', 'read')
       return {
         config: initConfig(),
-        paths: { dir: configDir(), config: configPath(), db: dbPath(), log: logPath() },
+        paths: {
+          dir: configDir(),
+          config: configPath(),
+          db: dbPath(),
+          log: logPath(),
+          event_log: eventLogPath(),
+        },
         db: info,
       }
     },
@@ -569,6 +625,7 @@ Cli.create('neohtop', {
         run(c) {
           try {
             const result = service.install(c.options.intervalSecs)
+            note('service', `installed ${result.scheduler} every ${c.options.intervalSecs}s`)
             return c.ok(
               {
                 installed: true,
@@ -578,6 +635,7 @@ Cli.create('neohtop', {
                 command: result.command.join(' '),
                 interval_secs: c.options.intervalSecs,
                 log: logPath(),
+                event_log: eventLogPath(),
               },
               {
                 cta: {
@@ -586,6 +644,7 @@ Cli.create('neohtop', {
               },
             )
           } catch (err) {
+            note('service', (err as Error).message, 'error')
             return c.error({ code: 'INSTALL_FAILED', message: (err as Error).message })
           }
         },
@@ -594,8 +653,11 @@ Cli.create('neohtop', {
         description: 'Stop and remove the scheduled recorder job',
         run(c) {
           try {
-            return { ...service.uninstall(), name: service.scheduler().name }
+            const result = { ...service.uninstall(), name: service.scheduler().name }
+            note('service', result.removed ? 'uninstalled' : 'already absent')
+            return result
           } catch (err) {
+            note('service', (err as Error).message, 'error')
             return c.error({ code: 'UNINSTALL_FAILED', message: (err as Error).message })
           }
         },
@@ -607,13 +669,17 @@ Cli.create('neohtop', {
             const db = openDb()
             const info = dbInfo(db)
             db.close()
-            return {
+            const result = {
               ...service.status(),
               name: service.scheduler().name,
               db: info,
               db_path: dbPath(),
+              event_log: eventLogPath(),
             }
+            note('service', 'status')
+            return result
           } catch (err) {
+            note('service', (err as Error).message, 'error')
             return c.error({ code: 'STATUS_FAILED', message: (err as Error).message })
           }
         },
@@ -632,11 +698,14 @@ Cli.create('neohtop', {
       const signal = `SIG${c.options.signal}` as NodeJS.Signals
       try {
         process.kill(c.args.pid, signal)
+        note('kill', `pid ${c.args.pid} ${signal}`)
         return { killed: true, pid: c.args.pid, signal }
       } catch (err) {
+        const message = `failed to signal pid ${c.args.pid}: ${(err as Error).message}`
+        note('kill', message, 'error')
         return c.error({
           code: 'SIGNAL_FAILED',
-          message: `failed to signal pid ${c.args.pid}: ${(err as Error).message}`,
+          message,
         })
       }
     },
