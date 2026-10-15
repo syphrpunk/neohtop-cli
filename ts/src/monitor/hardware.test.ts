@@ -3,8 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import {
+  cleanCpuFeatures,
+  hardwareInventory,
   normalizeHardware,
+  parseCpuinfoFlags,
   parseDarwinHardware,
+  parseHwOptional,
   parseLinuxHardware,
   parseWindowsHardware,
   readHardwareCache,
@@ -93,6 +97,18 @@ describe('hardware inventory', () => {
     expect(report.memory_bytes).toBe(1024 * 1024)
     expect(report.displays).toEqual([{ name: 'card0-eDP-1', resolution: '1920x1080' }])
     expect(report.battery).toEqual({ cycle_count: 12, maximum_capacity_percent: 80 })
+    expect(report.cpu_features).toBeUndefined()
+  })
+
+  test('linux keeps the first flags line and drops a later Features line', () => {
+    const report = parseLinuxHardware({
+      cpuinfo: 'processor\t: 0\nflags\t: sse sse2 avx sse\nFeatures\t: fp asimd\n',
+      meminfo: 'MemTotal:       1024 kB\n',
+      collectedAt: '2026-10-03T00:00:00.000Z',
+    })
+    expect(report.cpu_features).toEqual(['sse', 'sse2', 'avx'])
+    expect(parseCpuinfoFlags('processor : 0\nFeatures : fp asimd fp\n')).toEqual(['fp', 'asimd'])
+    expect(parseCpuinfoFlags('processor : 0\n')).toBeUndefined()
   })
 
   test('windows health is full charge over design capacity', () => {
@@ -111,6 +127,23 @@ describe('hardware inventory', () => {
     expect(report.chip).toBe('Test CPU')
     expect(report.battery?.maximum_capacity_percent).toBe(82)
     expect(report.displays).toEqual([{ name: 'Generic PnP' }])
+    expect(report.cpu_features).toBeUndefined()
+  })
+
+  test('hw.optional keeps only values that are exactly 1', () => {
+    const text = `hw.optional.arm.FEAT_AES: 1
+hw.optional.arm.FEAT_PMULL: 0
+hw.optional.breakpoint: 6
+hw.optional.neon: 1
+hw.optional.arm.FEAT_AES: 1
+not a flag
+`
+    expect(parseHwOptional(text)).toEqual(['arm.FEAT_AES', 'neon'])
+    expect(parseHwOptional('hw.optional.neon: 0\n')).toBeUndefined()
+    expect(cleanCpuFeatures(['arm.FEAT_AES', 'arm.FEAT_AES', 'has space', '', 'neon'])).toEqual([
+      'arm.FEAT_AES',
+      'neon',
+    ])
   })
 
   test('the cache round-trips the allowlist and marks from_cache', () => {
@@ -125,6 +158,49 @@ describe('hardware inventory', () => {
     expect(loaded?.from_cache).toBe(true)
     expect(loaded?.chip).toBe('Apple M3')
     expect(normalizeHardware({ serial_number: 'SECRET' })).toBeNull()
+    expect(
+      normalizeHardware({
+        collected_at: '2026-10-03T00:00:00.000Z',
+        cpu_features: ['ok', 'nope nope'],
+        serial_number: 'SECRET',
+      })?.cpu_features,
+    ).toEqual(['ok'])
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('a cache that already lists cpu_features is not rewritten from the live machine', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neohtop-hw-'))
+    const path = join(dir, 'hardware.json')
+    const report = parseDarwinHardware(PROFILER, {
+      memoryBytes: 100,
+      collectedAt: '2026-10-03T00:00:00.000Z',
+      cpuFeatures: ['kept'],
+    })
+    writeHardwareCache(path, report)
+    const loaded = hardwareInventory({ cachePath: path })
+    expect(loaded.cpu_features).toEqual(['kept'])
+    expect(loaded.collected_at).toBe('2026-10-03T00:00:00.000Z')
+    expect(loaded.from_cache).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('a cache missing cpu_features is filled without moving collected_at', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neohtop-hw-'))
+    const path = join(dir, 'hardware.json')
+    const report = parseDarwinHardware(PROFILER, { memoryBytes: 100, collectedAt: '2026-10-03T00:00:00.000Z' })
+    expect(report.cpu_features).toBeUndefined()
+    writeHardwareCache(path, report)
+    const loaded = hardwareInventory({ cachePath: path })
+    expect(loaded.collected_at).toBe('2026-10-03T00:00:00.000Z')
+    expect(loaded.from_cache).toBe(true)
+    const text = readFileSync(path, 'utf8')
+    expect(text).not.toContain('from_cache')
+    expect(JSON.parse(text).collected_at).toBe('2026-10-03T00:00:00.000Z')
+    if (process.platform === 'darwin') {
+      expect(loaded.cpu_features?.length).toBeGreaterThan(0)
+      expect(text).toContain('cpu_features')
+    }
+    if (process.platform === 'win32') expect(loaded.cpu_features).toBeUndefined()
     rmSync(dir, { recursive: true, force: true })
   })
 })

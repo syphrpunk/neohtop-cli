@@ -207,6 +207,7 @@ export class Monitor {
         disk_write_bytes: Math.round(disk?.write ?? 0),
         ...(gpu !== undefined ? { gpu_time_ms: gpu } : {}),
         ...(p.cgroup !== undefined ? { cgroup: p.cgroup } : {}),
+        ...(p.physFootprintBytes !== undefined ? { phys_footprint_bytes: p.physFootprintBytes } : {}),
       }
     })
   }
@@ -231,6 +232,13 @@ export function optionalSystemStats(s: PlatformSample): Partial<SystemStats> {
   if (s.psiIoSomeAvg10 !== undefined) out.psi_io_some_avg10 = round2(s.psiIoSomeAvg10)
   if (s.psiMemorySomeAvg10 !== undefined) out.psi_memory_some_avg10 = round2(s.psiMemorySomeAvg10)
   if (s.memoryPressureLevel !== undefined) out.memory_pressure_level = s.memoryPressureLevel
+  const gpu = s.gpuActivity
+  if (gpu) {
+    if (gpu.devicePercent !== undefined) out.gpu_utilization_percent = gpu.devicePercent
+    if (gpu.rendererPercent !== undefined) out.gpu_renderer_utilization_percent = gpu.rendererPercent
+    if (gpu.tilerPercent !== undefined) out.gpu_tiler_utilization_percent = gpu.tilerPercent
+    if (gpu.memoryBytes !== undefined) out.gpu_memory_bytes = gpu.memoryBytes
+  }
   return out
 }
 

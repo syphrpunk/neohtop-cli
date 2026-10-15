@@ -39,6 +39,12 @@ export interface HardwareReport {
   memory_bytes?: number
   displays: HardwareDisplay[]
   battery?: HardwareBattery
+  /**
+   * Enabled CPU feature flags. Omitted when the platform lists none.
+   * Darwin keeps `hw.optional.*` names whose value is exactly 1.
+   * Linux keeps the first `flags` or `Features` line. Windows omits this.
+   */
+  cpu_features?: string[]
   /** Set when the report was read from disk. Not written back. */
   from_cache?: boolean
 }
@@ -97,7 +103,44 @@ export function normalizeHardware(value: unknown): HardwareReport | null {
     }
     if (Object.keys(battery).length > 0) report.battery = battery
   }
+  const features = cleanCpuFeatures(raw['cpu_features'])
+  if (features) report.cpu_features = features
   return report
+}
+
+const CPU_FEATURE = /^[A-Za-z0-9_.]+$/
+
+/** Keep unique flag tokens. An empty list is omitted, not stored. */
+export function cleanCpuFeatures(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const name = item.trim()
+    if (!name || name.length > 64 || !CPU_FEATURE.test(name) || seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+  return out.length > 0 ? out : undefined
+}
+
+/** `sysctl -a hw.optional`. The suffix is kept only when the value is exactly 1. */
+export function parseHwOptional(text: string): string[] | undefined {
+  const names: string[] = []
+  for (const line of text.split('\n')) {
+    const match = /^hw\.optional\.(.+):\s*(-?\d+)\s*$/.exec(line.trim())
+    if (!match || match[2] !== '1') continue
+    names.push(match[1]!)
+  }
+  return cleanCpuFeatures(names)
+}
+
+/** First `flags` or `Features` line of `/proc/cpuinfo`. */
+export function parseCpuinfoFlags(text: string): string[] | undefined {
+  const line = /^(?:flags|Features)\s*:\s*(.*)$/m.exec(text)
+  if (!line) return undefined
+  return cleanCpuFeatures(line[1]!.trim().split(/\s+/))
 }
 
 /**
@@ -106,13 +149,14 @@ export function normalizeHardware(value: unknown): HardwareReport | null {
  */
 export function parseDarwinHardware(
   raw: unknown,
-  opts: { memoryBytes?: number; collectedAt: string },
+  opts: { memoryBytes?: number; collectedAt: string; cpuFeatures?: string[] },
 ): HardwareReport {
   if (!raw || typeof raw !== 'object') throw new HardwareError('system_profiler returned no inventory')
   const doc = raw as Record<string, unknown>
   const hw = firstObj(doc['SPHardwareDataType'])
   const displayRoot = firstObj(doc['SPDisplaysDataType'])
   const built: Record<string, unknown> = { collected_at: opts.collectedAt, displays: [] }
+  if (opts.cpuFeatures && opts.cpuFeatures.length > 0) built['cpu_features'] = opts.cpuFeatures
   if (hw) {
     if (typeof hw['chip_type'] === 'string') built['chip'] = hw['chip_type']
     if (typeof hw['machine_name'] === 'string') built['model'] = hw['machine_name']
@@ -176,6 +220,7 @@ export function parseLinuxHardware(input: {
   const chip =
     input.cpuinfo.match(/^model name\s*:\s*(.+)$/m)?.[1]?.trim() ??
     input.cpuinfo.match(/^Hardware\s*:\s*(.+)$/m)?.[1]?.trim()
+  const cpuFeatures = parseCpuinfoFlags(input.cpuinfo)
   const logical = input.cpuinfo.match(/^processor\s*:/gm)?.length
   const mem = input.meminfo.match(/^MemTotal:\s+(\d+)\s+kB/m)
   const displays = (input.displays ?? [])
@@ -186,6 +231,7 @@ export function parseLinuxHardware(input: {
     ...(chip ? { chip } : {}),
     ...(logical ? { logical_cores: logical } : {}),
     ...(mem ? { memory_bytes: Number(mem[1]) * 1024 } : {}),
+    ...(cpuFeatures ? { cpu_features: cpuFeatures } : {}),
     displays,
   }
   const battery = linuxBattery(input.battery)
@@ -256,7 +302,7 @@ export function hardwareInventory(opts: { refresh?: boolean; cachePath?: string 
   const path = opts.cachePath ?? hardwareCachePath()
   if (!opts.refresh) {
     const cached = readHardwareCache(path)
-    if (cached) return cached
+    if (cached) return finishCachedFeatures(cached, path)
   }
   const report = collectHardware()
   try {
@@ -294,13 +340,53 @@ function collectDarwin(collectedAt: string): HardwareReport {
     const mem = Number(
       execFileSync('/usr/sbin/sysctl', ['-n', 'hw.memsize'], { encoding: 'utf8' }).trim(),
     )
+    const cpuFeatures = readCpuFeatures()
     return parseDarwinHardware(JSON.parse(text), {
       collectedAt,
       ...(Number.isFinite(mem) ? { memoryBytes: mem } : {}),
+      ...(cpuFeatures ? { cpuFeatures } : {}),
     })
   } catch (err) {
     if (err instanceof HardwareError) throw err
     throw new HardwareError('system_profiler failed')
+  }
+}
+
+/**
+ * An old cache has no `cpu_features` key, which is the same shape as
+ * "looked and found none". Fill it with a cheap read when flags exist.
+ * `collected_at` stays put. A miss is not written, and the next call retries.
+ */
+function finishCachedFeatures(cached: HardwareReport, path: string): HardwareReport {
+  if (cached.cpu_features !== undefined) return cached
+  const features = readCpuFeatures()
+  if (!features) return cached
+  const next = { ...cached, cpu_features: features }
+  try {
+    if (path !== ':memory:') writeHardwareCache(path, next)
+  } catch {
+    // The reading is still returned when the cache file is not writable.
+  }
+  return next
+}
+
+function readCpuFeatures(): string[] | undefined {
+  try {
+    switch (platform()) {
+      case 'darwin':
+        return parseHwOptional(
+          execFileSync('/usr/sbin/sysctl', ['-a', 'hw.optional'], {
+            encoding: 'utf8',
+            maxBuffer: 1024 * 1024,
+          }),
+        )
+      case 'linux':
+        return parseCpuinfoFlags(readFileSync('/proc/cpuinfo', 'utf8'))
+      default:
+        return undefined
+    }
+  } catch {
+    return undefined
   }
 }
 

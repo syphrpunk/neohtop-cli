@@ -7,8 +7,10 @@ import pkg from '../package.json' with { type: 'json' }
 import { SORT_KEYS, FilterQueryError, filterProcesses, sortProcesses } from './filter/index.ts'
 import { splitPinned } from './filter/pins.ts'
 import { buildProcessTree } from './filter/tree.ts'
+import { openFiles } from './monitor/files.ts'
 import { HardwareError, hardwareInventory } from './monitor/hardware.ts'
 import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
+import { ListenError, listeningSockets } from './monitor/listen.ts'
 import { NetError, sampleNet } from './monitor/net.ts'
 import { configDir, configPath, dbPath, initConfig, loadConfig, logPath } from './store/config.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
@@ -85,7 +87,7 @@ Cli.create('neohtop', {
 })
   .command('hardware', {
     description:
-      'On-demand hardware inventory: chip, core layout, memory, displays, battery health. Cached under ~/.config/neohtop. record and service never call this.',
+      'On-demand hardware inventory: chip, core layout, memory, displays, battery health, and CPU feature flags when the platform lists them. Cached under ~/.config/neohtop. record and service never call this.',
     options: z.object({
       refresh: z.boolean().default(false).describe('Re-read the platform and replace the cache'),
     }),
@@ -102,7 +104,7 @@ Cli.create('neohtop', {
   })
   .command('system', {
     description:
-      'System-wide stats: CPU, memory, disk, per-device throughput and latency, network, load, host info',
+      'System-wide stats: CPU, memory, disk, per-device throughput and latency, network, load, host info. On macOS, GPU utilization and in-use GPU memory are included when AGX PerformanceStatistics is present.',
     options: z.object({ sampleMs: listOptions.shape.sampleMs }),
     async run(c) {
       const { system } = await snapshot(c.options.sampleMs)
@@ -111,6 +113,7 @@ Cli.create('neohtop', {
           commands: [
             { command: 'top', description: 'Top processes by CPU' },
             { command: 'net', description: 'Per-connection byte rates' },
+            { command: 'listen', description: 'Local listening TCP sockets' },
             { command: 'watch', description: 'Stream realtime snapshots' },
           ],
         },
@@ -152,9 +155,31 @@ Cli.create('neohtop', {
       }
     },
   })
+  .command('listen', {
+    description:
+      'Local TCP sockets in LISTEN. Not a remote scan and not a packet capture. A missing tool is an error; sockets the tool cannot see are omitted.',
+    run(c) {
+      try {
+        const sockets = listeningSockets()
+        return c.ok(
+          { count: sockets.length, sockets },
+          {
+            cta: {
+              commands: [{ command: 'proc <pid> --files', description: 'Open files for one process' }],
+            },
+          },
+        )
+      } catch (err) {
+        if (err instanceof ListenError) {
+          return c.error({ code: 'LISTEN_UNAVAILABLE', message: err.message })
+        }
+        throw err
+      }
+    },
+  })
   .command('processes', {
     description:
-      'List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present. On Linux, cgroup is the cgroup2 path.',
+      'List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, and phys_footprint_bytes is the physical footprint when the rusage read succeeds. On Linux, cgroup is the cgroup2 path.',
     options: listOptions.extend({
       pin: z
         .string()
@@ -266,13 +291,18 @@ Cli.create('neohtop', {
     },
   })
   .command('proc', {
-    description: 'Detailed info for a single process (cwd, children; --env for environment)',
+    description:
+      'Detailed info for a single process (cwd, children; --env for environment; --files for open files). Open files are omitted when they cannot be measured.',
     args: z.object({ pid: z.coerce.number().int().positive().describe('Process ID') }),
     options: z.object({
       env: z
         .boolean()
         .default(false)
         .describe('Include environment variables (same-user processes only without root)'),
+      files: z
+        .boolean()
+        .default(false)
+        .describe('Include open files for this process. Omitted when they cannot be measured. Not stored by record'),
     }),
     async run(c) {
       const { processes } = await snapshot(500)
@@ -282,12 +312,14 @@ Cli.create('neohtop', {
       const children = processes.filter((p) => p.ppid === proc.pid).map((p) => p.pid)
       const parent = processes.find((p) => p.pid === proc.ppid)
       const detail = await processDetail(proc.pid)
+      const files = c.options.files ? openFiles(proc.pid) : undefined
       return c.ok(
         {
           ...proc,
           ...(parent ? { parent_name: parent.name } : {}),
           ...(detail.cwd ? { cwd: detail.cwd } : {}),
           ...(c.options.env ? { environ: detail.environ ?? [] } : {}),
+          ...(files ? { files } : {}),
           children,
         },
         {

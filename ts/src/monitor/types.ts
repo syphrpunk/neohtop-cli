@@ -30,6 +30,11 @@ export interface ProcessInfo {
   gpu_time_ms?: number
   /** Linux cgroup2 path. Omitted on cgroup1, macOS, and Windows. */
   cgroup?: string
+  /**
+   * macOS `ri_phys_footprint` in bytes. Omitted when the rusage read fails.
+   * A measured 0 stays 0. Not stored by `record`. Leak reports stay on RSS.
+   */
+  phys_footprint_bytes?: number
 }
 
 /** Expensive per-process fields fetched on demand (port of ProcessDetail) */
@@ -101,6 +106,16 @@ export interface SystemStats {
    * had no operations, or when the OS has no service-time counter.
    */
   disk_devices?: DiskDevice[]
+  /**
+   * System-wide AGX utilization and in-use GPU memory from
+   * `PerformanceStatistics`. Not derived from `gpu_time_ms`. Omitted when
+   * that dictionary is absent. A measured 0 stays 0. Not stored by `record`.
+   * Per-process VRAM is not read.
+   */
+  gpu_utilization_percent?: number
+  gpu_renderer_utilization_percent?: number
+  gpu_tiler_utilization_percent?: number
+  gpu_memory_bytes?: number
 }
 
 export interface DiskDevice {
@@ -144,6 +159,8 @@ export interface RawProc {
   cpuTicks?: number
   /** cgroup2 path (`0::` line). Absent on cgroup1 and on other platforms. */
   cgroup?: string
+  /** macOS physical footprint in bytes. Absent when the rusage read fails. */
+  physFootprintBytes?: number
 }
 
 export interface PlatformSample {
@@ -187,6 +204,19 @@ export interface PlatformSample {
   disks?: DiskCounters[]
   /** Cumulative AGX GPU time in nanoseconds, keyed by pid. Absent when unread. */
   gpuTimeNs?: Map<number, bigint>
+  /**
+   * System-wide AGX `PerformanceStatistics`. Absent when the dictionary
+   * was not read. Independent of `gpuTimeNs`.
+   */
+  gpuActivity?: GpuActivity
+}
+
+/** System-wide AGX utilization. Each field is omitted when that key is absent. */
+export interface GpuActivity {
+  devicePercent?: number
+  rendererPercent?: number
+  tilerPercent?: number
+  memoryBytes?: number
 }
 
 /** Cumulative per-device counters. Times are nanoseconds when the OS provides them. */

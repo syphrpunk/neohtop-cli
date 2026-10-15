@@ -13,9 +13,11 @@ const KERN_PROCARGS2 = 49
 
 // struct proc_taskinfo: 6× uint64 then 12× int32 = 96 bytes
 const TASKINFO_SIZE = 96
-// struct rusage_info_v2: uuid[16] + 18× uint64 = 160 bytes;
-// ri_diskio_bytesread/written are the last two fields
+// struct rusage_info_v2: uuid[16] + 18× uint64 = 160 bytes.
+// After ri_uuid, uint64 index 7 is ri_phys_footprint (offset 72).
+// ri_diskio_bytesread/written are the last two fields (144, 152).
 const RUSAGE_V2_SIZE = 160
+const RUSAGE_PHYS_FOOTPRINT_OFF = 72
 const RUSAGE_DISKIO_READ_OFF = 144
 const RUSAGE_DISKIO_WRITE_OFF = 152
 // struct vnode_info_path = vnode_info (152) + char path[1024] = 1176;
@@ -58,15 +60,32 @@ export function taskInfo(pid: number): TaskInfo | null {
   }
 }
 
-/** Cumulative disk I/O byte counters (rates are computed by Monitor) */
-export function diskIO(pid: number): { read: number; write: number } | null {
+/**
+ * `ri_phys_footprint` in bytes. A short buffer or a value that is not a
+ * safe integer is omitted. A measured 0 stays 0.
+ */
+export function readPhysFootprint(view: DataView): number | undefined {
+  if (view.byteLength < RUSAGE_PHYS_FOOTPRINT_OFF + 8) return undefined
+  const value = view.getBigUint64(RUSAGE_PHYS_FOOTPRINT_OFF, true)
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) return undefined
+  return Number(value)
+}
+
+/**
+ * Cumulative disk I/O byte counters (rates are computed by Monitor) and,
+ * from the same buffer, the physical footprint. The call returns null when
+ * libproc cannot read the process; footprint is then omitted too.
+ */
+export function diskIO(pid: number): { read: number; write: number; footprint?: number } | null {
   if (!lib) return null
   const buf = new ArrayBuffer(RUSAGE_V2_SIZE)
   if (lib.symbols.proc_pid_rusage(pid, RUSAGE_INFO_V2, ptr(buf)) !== 0) return null
   const view = new DataView(buf)
+  const footprint = readPhysFootprint(view)
   return {
     read: Number(view.getBigUint64(RUSAGE_DISKIO_READ_OFF, true)),
     write: Number(view.getBigUint64(RUSAGE_DISKIO_WRITE_OFF, true)),
+    ...(footprint !== undefined ? { footprint } : {}),
   }
 }
 

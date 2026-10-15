@@ -3,6 +3,8 @@
 // own several clients; they are summed. The published field is the accrual
 // over the sample window, not a percent and not a per-engine breakdown.
 
+import type { GpuActivity } from './types.ts'
+
 /** Sum `accumulatedGPUTime` per pid from `ioreg -r -c AGXDeviceUserClient -d 0`. */
 export function parseAgxGpuTime(text: string): Map<number, bigint> {
   const out = new Map<number, bigint>()
@@ -37,4 +39,34 @@ export function gpuTimeDeltas(
     out.set(pid, Math.round((Number(delta) / 1e6) * 1000) / 1000)
   }
   return out
+}
+
+function statNumber(body: string, key: string): number | undefined {
+  const match = new RegExp(`"${key}"\\s*=\\s*(-?\\d+(?:\\.\\d+)?)`).exec(body)
+  if (!match) return undefined
+  const value = Number(match[1])
+  if (!Number.isFinite(value) || value < 0) return undefined
+  return value
+}
+
+/**
+ * System-wide AGX `PerformanceStatistics`. Not a percent derived from
+ * `accumulatedGPUTime`, and not per-process VRAM. The `(driver)` memory
+ * key is a different counter and is ignored. Absent dictionary → undefined.
+ * A measured 0 stays 0.
+ */
+export function parseAgxPerformance(text: string): GpuActivity | undefined {
+  const block = /"PerformanceStatistics"\s*=\s*\{([^}]*)\}/.exec(text)
+  if (!block) return undefined
+  const body = block[1]!
+  const device = statNumber(body, 'Device Utilization %')
+  const renderer = statNumber(body, 'Renderer Utilization %')
+  const tiler = statNumber(body, 'Tiler Utilization %')
+  const memory = statNumber(body, 'In use system memory')
+  const out: GpuActivity = {}
+  if (device !== undefined) out.devicePercent = device
+  if (renderer !== undefined) out.rendererPercent = renderer
+  if (tiler !== undefined) out.tilerPercent = tiler
+  if (memory !== undefined && Number.isSafeInteger(memory)) out.memoryBytes = memory
+  return Object.keys(out).length > 0 ? out : undefined
 }

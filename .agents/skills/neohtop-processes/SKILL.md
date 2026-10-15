@@ -1,13 +1,13 @@
 ---
 name: neohtop-processes
-description: List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present. On Linux, cgroup is the cgroup2 path. Run `neohtop processes --help` for usage details.
+description: List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, and phys_footprint_bytes is the physical footprint when the rusage read succeeds. On Linux, cgroup is the cgroup2 path. Run `neohtop processes --help` for usage details.
 requires_bin: neohtop
 command: neohtop processes
 ---
 
 # neohtop processes
 
-List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present. On Linux, cgroup is the cgroup2 path.
+List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, and phys_footprint_bytes is the physical footprint when the rusage read succeeds. On Linux, cgroup is the cgroup2 path.
 
 ## Options
 

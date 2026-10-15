@@ -7,7 +7,7 @@ import { basename } from 'node:path'
 import * as ffi from './darwin_ffi.ts'
 import { readEnergy } from './darwin_energy.ts'
 import { parseIoregDisks } from './disk.ts'
-import { parseAgxGpuTime } from './gpu.ts'
+import { parseAgxGpuTime, parseAgxPerformance } from './gpu.ts'
 import type {
   CoreTicks,
   MemoryPressureLevel,
@@ -124,6 +124,7 @@ function collectProcs(): RawProc[] {
     if (io) {
       proc.diskReadTotal = io.read
       proc.diskWriteTotal = io.write
+      if (io.footprint !== undefined) proc.physFootprintBytes = io.footprint
     }
     procs.push(proc)
   }
@@ -235,6 +236,16 @@ function collectGpuTime() {
   }
 }
 
+/** Separate from GPU time so a missing accelerator does not drop `gpu_time_ms`. */
+function collectGpuActivity() {
+  try {
+    const text = sh('/usr/sbin/ioreg', ['-r', '-c', 'AGXAccelerator', '-d', '0'])
+    return parseAgxPerformance(text)
+  } catch {
+    return
+  }
+}
+
 function collectDiskCounters() {
   try {
     // Depth-limited ioreg. The full `-l` tree is slow and is not required.
@@ -265,6 +276,7 @@ export function collect(): PlatformSample {
   const disk = collectDisk()
   const disks = collectDiskCounters()
   const gpuTimeNs = collectGpuTime()
+  const gpuActivity = collectGpuActivity()
   const swap = collectSwap()
   const battery = collectBattery()
   const memoryPressureLevel = collectMemoryPressure()
@@ -306,5 +318,6 @@ export function collect(): PlatformSample {
     ...(energyNj ? { energyNj } : {}),
     ...(disks ? { disks } : {}),
     ...(gpuTimeNs ? { gpuTimeNs } : {}),
+    ...(gpuActivity ? { gpuActivity } : {}),
   }
 }
