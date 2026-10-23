@@ -27,6 +27,26 @@ const system: SystemStats = {
   process_count: 3,
 }
 
+function pause(ms: number) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/** Windows can keep a closed sqlite file locked until the handle is collected. */
+function removeTemp(dir: string) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+      return
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+      const locked = code === 'EBUSY' || code === 'EPERM' || code === 'ENOTEMPTY'
+      if (process.platform !== 'win32' || !locked || attempt === 19) throw error
+      Bun.gc(true)
+      pause(50)
+    }
+  }
+}
+
 function proc(pid: number, cpu: number): ProcessInfo {
   return {
     pid,
@@ -167,7 +187,7 @@ describe('metrics store', () => {
   test('adds nullable columns to a database created before swap and battery', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sloppytop-db-'))
     const path = join(dir, 'old.db')
-    const old = new Database(path)
+    let old: Database | undefined = new Database(path)
     old.run(`CREATE TABLE system_samples (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       at TEXT NOT NULL,
@@ -189,8 +209,9 @@ describe('metrics store', () => {
       process_count INTEGER NOT NULL
     )`)
     old.close()
+    old = undefined
 
-    const db = openDb(path)
+    let db: Database | undefined = openDb(path)
     const names = (db.prepare('PRAGMA table_info(system_samples)').all() as { name: string }[]).map(
       (c) => c.name,
     )
@@ -214,6 +235,8 @@ describe('metrics store', () => {
     expect(row.swap_used_bytes).toBe(40)
     expect(row).not.toHaveProperty('battery_charge_percent')
     db.close()
-    rmSync(dir, { recursive: true, force: true })
+    db = undefined
+    Bun.gc(true)
+    removeTemp(dir)
   })
 })
