@@ -31,102 +31,6 @@ jobs:
           CGO_ENABLED: "0"
         run: go test -count=1 ./...
 
-  build-linux:
-    needs: [test]
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goarch: amd64
-            suffix: linux-amd64
-          - goarch: arm64
-            suffix: linux-arm64
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Build
-        working-directory: cli
-        env:
-          GOOS: linux
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../sloppytop-cli-${{ matrix.suffix }} .
-
-      - name: Compress binary
-        run: |
-          tar czf sloppytop-cli-${{ matrix.suffix }}.tar.gz sloppytop-cli-${{ matrix.suffix }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sloppytop-cli-${{ matrix.suffix }}
-          path: sloppytop-cli-${{ matrix.suffix }}.tar.gz
-
-  build-macos:
-    needs: [test]
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        include:
-          - goarch: arm64
-            suffix: macos-arm64
-          - goarch: amd64
-            suffix: macos-amd64
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Build
-        working-directory: cli
-        env:
-          GOOS: darwin
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "1"
-        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../sloppytop-cli-${{ matrix.suffix }} .
-
-      - name: Compress binary
-        run: |
-          tar czf sloppytop-cli-${{ matrix.suffix }}.tar.gz sloppytop-cli-${{ matrix.suffix }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sloppytop-cli-${{ matrix.suffix }}
-          path: sloppytop-cli-${{ matrix.suffix }}.tar.gz
-
-  build-windows:
-    needs: [test]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Build
-        working-directory: cli
-        env:
-          GOOS: windows
-          GOARCH: amd64
-          CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o ../sloppytop-cli-windows-amd64.exe .
-
-      - name: Compress binary
-        shell: bash
-        run: |
-          7z a sloppytop-cli-windows-amd64.zip sloppytop-cli-windows-amd64.exe
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sloppytop-cli-windows-amd64
-          path: sloppytop-cli-windows-amd64.zip
-
   # TypeScript CLI (ts/) — standalone bun-compiled binaries.
   # Native compile per runner: bun canary can't download cross-targets.
   # Each leg also embeds incur's binary metadata (__INCUR_BINARY_*) and
@@ -185,6 +89,20 @@ jobs:
             --define "__INCUR_BINARY_TARGET__=\"${{ matrix.incur_target }}\"" \
             --define "__INCUR_BINARY_VERSION__=\"${VERSION}\""
 
+      - name: Smoke help
+        working-directory: ts
+        shell: bash
+        run: |
+          bin="./dist/sloppytop-${{ matrix.suffix }}${{ matrix.exe }}"
+          "$bin" --help
+          "$bin" --help | grep -F "process monitor screen"
+
+      - name: Screen starts
+        if: matrix.suffix != 'windows-amd64'
+        working-directory: ts
+        shell: bash
+        run: python3 smoke-tui.py "./dist/sloppytop-${{ matrix.suffix }}"
+
       - name: Compress binary
         working-directory: ts/dist
         shell: bash
@@ -201,7 +119,7 @@ jobs:
             ts/dist/sloppytop-${{ matrix.incur_target }}${{ matrix.exe }}.gz
 
   release:
-    needs: [build-linux, build-macos, build-windows, build-ts]
+    needs: [build-ts]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -223,11 +141,6 @@ jobs:
           generate_release_notes: true
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: |
-            artifacts/sloppytop-cli-linux-amd64.tar.gz
-            artifacts/sloppytop-cli-linux-arm64.tar.gz
-            artifacts/sloppytop-cli-macos-arm64.tar.gz
-            artifacts/sloppytop-cli-macos-amd64.tar.gz
-            artifacts/sloppytop-cli-windows-amd64.zip
             artifacts/sloppytop-macos-arm64.tar.gz
             artifacts/sloppytop-linux-amd64.tar.gz
             artifacts/sloppytop-linux-arm64.tar.gz

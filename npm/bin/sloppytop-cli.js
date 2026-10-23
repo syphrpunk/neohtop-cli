@@ -5,7 +5,7 @@ const fs = require("fs");
 const { execFileSync } = require("child_process");
 const os = require("os");
 
-const binName = os.platform() === "win32" ? "sloppytop-cli.exe" : "sloppytop-cli";
+const binName = os.platform() === "win32" ? "sloppytop.exe" : "sloppytop";
 const binPath = path.join(__dirname, binName);
 
 // Bun blocks postinstall scripts by default, so the binary may not have been
@@ -34,7 +34,7 @@ try {
   if (err.status !== null) {
     process.exit(err.status);
   }
-  console.error(`sloppytop-cli: failed to run binary at ${binPath}`);
+  console.error(`sloppytop: failed to run binary at ${binPath}`);
   console.error("Run 'bun install -g sloppytop-cli' (or npm) to reinstall.");
   process.exit(1);
 }

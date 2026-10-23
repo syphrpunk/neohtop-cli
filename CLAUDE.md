@@ -24,7 +24,7 @@ just deps
 
 ## TypeScript Port (ts/)
 
-`ts/` hosts the TypeScript port built on [incur](https://github.com/wevm/incur) (wevm's agent-first CLI framework) — see `ts/README.md` for port status. It reuses the Go `--json` field names so outputs stay compatible. Commands: `system`, `processes`, `top`, `tree`, `proc`, `snapshot`, `watch` (streaming), `kill`, plus persistence: `record`/`history`/`report` (SQLite metrics store via `bun:sqlite`; `report` = hourly aggregates, top consumers, anomaly flags, braille sparkline charts), `config`, and `service install|status|uninstall` (hourly recorder — launchd on macOS, systemd user timer on Linux). Monitors cover macOS (`bun:ffi` libproc), Linux (`/proc`), and Windows (PowerShell CIM). State lives in `~/.config/sloppytop/` (an existing `~/.config/neohtop/` directory is reused). All commands support `--format toon|json|yaml|md|jsonl`, `--llms`, and MCP; compiled release binaries self-update via `--update`. Native bun APIs only — no dependencies beyond incur. TUI will eventually use OpenTUI (low priority).
+`ts/` hosts the TypeScript port built on [incur](https://github.com/wevm/incur) (wevm's agent-first CLI framework) — see `ts/README.md` for port status. It reuses the Go `--json` field names so outputs stay compatible. Commands: `system`, `processes`, `top`, `tree`, `proc`, `snapshot`, `watch` (streaming), `kill`, plus persistence: `record`/`history`/`report` (SQLite metrics store via `bun:sqlite`; `report` = hourly aggregates, top consumers, anomaly flags, braille sparkline charts), `config`, and `service install|status|uninstall` (hourly recorder — launchd on macOS, systemd user timer on Linux). Monitors cover macOS (`bun:ffi` libproc), Linux (`/proc`), and Windows (PowerShell CIM). State lives in `~/.config/sloppytop/` (an existing `~/.config/neohtop/` directory is reused). All commands support `--format toon|json|yaml|md|jsonl`, `--llms`, and MCP; compiled release binaries self-update via `--update`. Native bun APIs only — no dependencies beyond incur. `sloppytop tui` is the screen, on `@opentui/core`. The release uploads that binary and does not upload `sloppytop-cli`.
 
 ```bash
 just ts-setup   # bun install
@@ -121,7 +121,7 @@ git tag -a v0.1.0 -m "Initial release"
 git push --tags
 ```
 
-This runs tests first, then builds the Go TUI (`sloppytop-cli`) and the TypeScript CLI (`sloppytop`) for macOS, Linux, and Windows, and creates a GitHub Release with checksums. `.github/workflows/ci.yml` builds the Linux binaries on every push and pull request.
+This runs the Go tests first, then builds the TypeScript CLI (`sloppytop`) for macOS Apple Silicon, Linux, and Windows, and creates a GitHub Release with checksums. The release does not upload `sloppytop-cli`. `.github/workflows/ci.yml` tests the Go sources and builds the Linux TypeScript binary on every push and pull request.
 
 ## Handoff protocol
 

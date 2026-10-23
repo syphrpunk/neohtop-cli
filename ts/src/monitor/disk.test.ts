@@ -59,6 +59,8 @@ describe('disk devices', () => {
     expect(sda.writeBytes).toBe(80n * 512n)
     expect(sda.readOps).toBe(100n)
     expect(sda.writeOps).toBe(40n)
+    expect(sda.readMerges).toBe(0n)
+    expect(sda.writeMerges).toBe(0n)
     expect(sda.readTimeNs).toBe(50n * 1_000_000n)
     expect(sda.writeTimeNs).toBe(20n * 1_000_000n)
   })
@@ -99,6 +101,8 @@ describe('disk devices', () => {
         write_iops: 20,
         read_latency_ms: 0.5,
         write_latency_ms: 0.5,
+        read_request_bytes: 1024,
+        write_request_bytes: 1024,
       },
     ])
     const idle = diskRates(
@@ -111,5 +115,40 @@ describe('disk devices', () => {
 
     const reset = diskRates([base({ readBytes: 999n })], [base({ readBytes: 1n })], 1)
     expect(reset).toEqual([])
+  })
+
+  test('linux merges rate across the interval and a backwards merge drops the device', () => {
+    const row = (bytes: bigint, ops: bigint, merges: bigint): DiskCounters => ({
+      name: 'sda',
+      readBytes: bytes,
+      writeBytes: 0n,
+      readOps: ops,
+      writeOps: 0n,
+      readMerges: merges,
+      writeMerges: 0n,
+    })
+    const rates = diskRates([row(0n, 0n, 10n)], [row(4096n, 4n, 14n)], 2)
+    expect(rates[0]).toMatchObject({
+      read_merges_per_s: 2,
+      write_merges_per_s: 0,
+      read_request_bytes: 1024,
+    })
+    expect(diskRates([row(0n, 0n, 14n)], [row(4096n, 4n, 10n)], 2)).toEqual([])
+  })
+
+  test('macOS counters omit merge rates and idle ops omit request size', () => {
+    const row = (ops: bigint): DiskCounters => ({
+      name: 'disk0',
+      readBytes: ops * 512n,
+      writeBytes: 0n,
+      readOps: ops,
+      writeOps: 0n,
+    })
+    const idle = diskRates([row(3n)], [row(3n)], 1)
+    expect(idle[0]).not.toHaveProperty('read_merges_per_s')
+    expect(idle[0]).not.toHaveProperty('read_request_bytes')
+    const busy = diskRates([row(1n)], [row(3n)], 1)
+    expect(busy[0]?.read_request_bytes).toBe(512)
+    expect(busy[0]).not.toHaveProperty('read_merges_per_s')
   })
 })

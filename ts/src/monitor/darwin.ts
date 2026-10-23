@@ -6,10 +6,15 @@ import { cpus, hostname, release } from 'node:os'
 import { basename } from 'node:path'
 import * as ffi from './darwin_ffi.ts'
 import { readEnergy } from './darwin_energy.ts'
+import { readHidTemperatures, readThermalState } from './darwin_sensors.ts'
+import { flagOn, type CollectFlags } from './probes.ts'
 import { parseIoregDisks } from './disk.ts'
 import { parseAgxGpuTime, parseAgxPerformance } from './gpu.ts'
+import { memoryFromVmStat } from './memory.ts'
+import { coreKinds, owningApp, type PerfLevelCount } from './sensors.ts'
 import type {
   CoreTicks,
+  CpuCoreKind,
   MemoryPressureLevel,
   PlatformSample,
   ProcessDetail,
@@ -102,6 +107,7 @@ function collectProcs(): RawProc[] {
     const [pid, ppid, pcpu, rss, state, user, etime] = parts
     const command = parts.slice(7).join(' ')
     const comm = commByPid.get(Number(pid)) ?? command
+    const app = owningApp(comm)
     const proc: RawProc = {
       pid: Number(pid),
       ppid: Number(ppid),
@@ -112,6 +118,7 @@ function collectProcs(): RawProc[] {
       user: user!,
       command,
       runtimeSecs: parseEtime(etime!),
+      ...(app ? { owningApp: app } : {}),
     }
     // libproc enrichment — threads/vsize/disk I/O (fails silently for
     // other users' processes without root, matching the Go port)
@@ -125,6 +132,7 @@ function collectProcs(): RawProc[] {
       proc.diskReadTotal = io.read
       proc.diskWriteTotal = io.write
       if (io.footprint !== undefined) proc.physFootprintBytes = io.footprint
+      if (io.idleWakeups !== undefined) proc.idleWakeupsTotal = io.idleWakeups
     }
     procs.push(proc)
   }
@@ -136,19 +144,36 @@ export function detail(pid: number): ProcessDetail {
   return { ...(cwd ? { cwd } : {}), environ: ffi.environ(pid) }
 }
 
-function collectMemory(total: number): { used: number; free: number } {
-  const pageSize = Number(sysctl('hw.pagesize'))
-  const counts: Record<string, number> = {}
-  for (const line of sh('/usr/bin/vm_stat', []).split('\n')) {
-    const m = line.match(/^(.+):\s+(\d+)\.$/)
-    if (m) counts[m[1]!.trim()] = Number(m[2])
+function collectMemory(total: number) {
+  let pageSize = 0
+  try {
+    pageSize = Number(sysctl('hw.pagesize'))
+  } catch {
+    pageSize = 0
   }
-  const used =
-    ((counts['Pages active'] ?? 0) +
-      (counts['Pages wired down'] ?? 0) +
-      (counts['Pages occupied by compressor'] ?? 0)) *
-    pageSize
-  return { used, free: total - used }
+  return memoryFromVmStat(sh('/usr/bin/vm_stat', []), pageSize, total)
+}
+
+/** `hw.perflevel0` is the highest-performance cluster and is listed first. */
+function collectCoreKinds(cpuCount: number): CpuCoreKind[] | undefined {
+  try {
+    const n = Number(sysctl('hw.nperflevels'))
+    if (!Number.isInteger(n) || n <= 0 || n > 8) return
+    const levels: PerfLevelCount[] = []
+    for (let i = 0; i < n; i++) {
+      const logicalCpu = Number(sysctl(`hw.perflevel${i}.logicalcpu`))
+      let name: string | undefined
+      try {
+        name = sysctl(`hw.perflevel${i}.name`)
+      } catch {
+        name = undefined
+      }
+      levels.push({ level: i, logicalCpu, ...(name ? { name } : {}) })
+    }
+    return coreKinds(levels, cpuCount)
+  } catch {
+    return
+  }
 }
 
 function collectNet(): { rx: number; tx: number } {
@@ -269,18 +294,22 @@ function collectDisk(): { total: number; used: number; free: number } {
   }
 }
 
-export function collect(): PlatformSample {
+export function collect(flags?: CollectFlags): PlatformSample {
   const memoryTotal = Number(sysctl('hw.memsize'))
-  const { used, free } = collectMemory(memoryTotal)
+  const mem = collectMemory(memoryTotal)
   const net = collectNet()
   const disk = collectDisk()
-  const disks = collectDiskCounters()
-  const gpuTimeNs = collectGpuTime()
-  const gpuActivity = collectGpuActivity()
-  const swap = collectSwap()
-  const battery = collectBattery()
-  const memoryPressureLevel = collectMemoryPressure()
-  const energyNj = readEnergy()
+  const disks = flagOn(flags, 'diskDevices') ? collectDiskCounters() : undefined
+  const gpuTimeNs = flagOn(flags, 'gpu') ? collectGpuTime() : undefined
+  const gpuActivity = flagOn(flags, 'gpu') ? collectGpuActivity() : undefined
+  const swap = flagOn(flags, 'swap') ? collectSwap() : undefined
+  const battery = flagOn(flags, 'battery') ? collectBattery() : undefined
+  const memoryPressureLevel = flagOn(flags, 'pressure') ? collectMemoryPressure() : undefined
+  const energyNj = flagOn(flags, 'power') ? readEnergy() : null
+  const cores = collectCoreTicks()
+  const cpuCoreKinds = collectCoreKinds(cores.length)
+  const temperatures = flagOn(flags, 'sensors') ? readHidTemperatures() : undefined
+  const thermalState = flagOn(flags, 'sensors') ? readThermalState() : undefined
 
   const bootMatch = sysctl('kern.boottime').match(/sec = (\d+)/)
   const uptimeSecs = bootMatch ? Math.floor(Date.now() / 1000) - Number(bootMatch[1]) : 0
@@ -295,10 +324,16 @@ export function collect(): PlatformSample {
   return {
     cpuBrand: sysctl('machdep.cpu.brand_string'),
     coreCount: Number(sysctl('hw.ncpu')),
-    cpuPerCoreTicks: collectCoreTicks(),
+    cpuPerCoreTicks: cores,
+    ...(cpuCoreKinds ? { cpuCoreKinds } : {}),
     memoryTotal,
-    memoryUsed: used,
-    memoryFree: free,
+    memoryUsed: mem.used,
+    memoryFree: mem.free,
+    ...(mem.wired !== undefined ? { memoryWired: mem.wired } : {}),
+    ...(mem.compressed !== undefined ? { memoryCompressed: mem.compressed } : {}),
+    ...(mem.app !== undefined ? { memoryApp: mem.app } : {}),
+    ...(mem.cached !== undefined ? { memoryCached: mem.cached } : {}),
+    ...(hasPageCounters(mem.pages) ? { pageCounters: mem.pages } : {}),
     netRxTotal: net.rx,
     netTxTotal: net.tx,
     diskTotal: disk.total,
@@ -319,5 +354,16 @@ export function collect(): PlatformSample {
     ...(disks ? { disks } : {}),
     ...(gpuTimeNs ? { gpuTimeNs } : {}),
     ...(gpuActivity ? { gpuActivity } : {}),
+    ...(temperatures ? { temperatures } : {}),
+    ...(thermalState ? { thermalState } : {}),
   }
+}
+
+function hasPageCounters(pages: { pageins?: number; pageouts?: number; compressions?: number; decompressions?: number }): boolean {
+  return (
+    pages.pageins !== undefined ||
+    pages.pageouts !== undefined ||
+    pages.compressions !== undefined ||
+    pages.decompressions !== undefined
+  )
 }

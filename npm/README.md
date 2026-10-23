@@ -2,7 +2,7 @@
 
 **A cross-platform terminal process monitor with btop-style visualizations**
 
-A terminal process monitor — originally the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built with Go and the [Charm](https://charm.sh) ecosystem.
+A terminal process monitor — originally the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop). The package installs the `sloppytop` binary. `sloppytop tui` opens the screen.
 
 ![Sloppytop](https://raw.githubusercontent.com/syphrpunk/neohtop-cli/main/assets/neohtop-cli.JPG)
 
@@ -18,15 +18,17 @@ Or with npm:
 npm install -g sloppytop-cli
 ```
 
-The package downloads the prebuilt binary for your platform on install (or on first run if install scripts are disabled, as they are by default under bun).
+The package downloads the prebuilt `sloppytop` binary for your platform on install (or on first run if install scripts are disabled, as they are by default under bun). The macOS build is Apple Silicon. An Intel Mac runs `./st` from a checkout of the repo.
 
 ## Usage
 
 ```bash
-sloppytop-cli          # launch the TUI
-sloppytop-cli --json   # one-shot JSON snapshot
-sloppytop-cli --help   # see all options
+sloppytop tui                      # open the process monitor
+sloppytop snapshot --format json   # one-shot JSON snapshot
+sloppytop --help                   # see all commands
 ```
+
+`sloppytop-cli` runs the same binary.
 
 ## Features
 

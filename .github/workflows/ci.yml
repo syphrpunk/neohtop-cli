@@ -30,10 +30,6 @@ jobs:
         run: go build -ldflags="-s -w -X main.version=${{ github.sha }}" -o ../sloppytop-cli .
       - name: Smoke
         run: ./sloppytop-cli --help
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sloppytop-cli-linux-amd64
-          path: sloppytop-cli
 
   ts:
     runs-on: ubuntu-latest
@@ -60,7 +56,12 @@ jobs:
             --define "__INCUR_BINARY_VERSION__=\"ci\""
       - name: Smoke
         working-directory: ts
-        run: ./dist/sloppytop --help
+        run: |
+          ./dist/sloppytop --help
+          ./dist/sloppytop --help | grep -F "process monitor screen"
+      - name: Screen starts
+        working-directory: ts
+        run: python3 smoke-tui.py ./dist/sloppytop
       - uses: actions/upload-artifact@v4
         with:
           name: sloppytop-linux-amd64

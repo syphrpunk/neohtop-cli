@@ -9,11 +9,36 @@ import { splitPinned } from './filter/pins.ts'
 import { buildProcessTree } from './filter/tree.ts'
 import { openFiles } from './monitor/files.ts'
 import { HardwareError, hardwareInventory } from './monitor/hardware.ts'
-import { Monitor, processDetail, sleep, snapshot } from './monitor/index.ts'
+import { Monitor, processDetail, sleep } from './monitor/index.ts'
+import type { ProcessInfo } from './monitor/types.ts'
 import { ListenError, listeningSockets } from './monitor/listen.ts'
 import { NetError, sampleNet } from './monitor/net.ts'
-import { configDir, configPath, dbPath, initConfig, loadConfig, logPath } from './store/config.ts'
+import {
+  collectFlags,
+  countEntry,
+  disabledRecordProbes,
+  hardwareEntry,
+  isProbeName,
+  parseProbeList,
+  probeEntries,
+  procEntry,
+  projectProcesses,
+  projectSystem,
+  PROBE_NAMES,
+} from './monitor/probes.ts'
+import {
+  configDir,
+  configPath,
+  dbPath,
+  initConfig,
+  loadConfig,
+  logPath,
+  updateMetrics,
+  updateProbes,
+} from './store/config.ts'
 import { eventLogPath, logEvent, type LogLevel } from './store/log.ts'
+import { metricsResponse } from './store/metrics.ts'
+import { appendProbeLog, probeLogPath, readProbeLog } from './store/probe-log.ts'
 import { dbInfo, insertSample, openDb, queryHistory, queryTopProcesses } from './store/db.ts'
 import { renderOpenMetrics } from './store/openmetrics.ts'
 import {
@@ -24,6 +49,7 @@ import {
   reportTopConsumers,
   reportWindow,
 } from './store/report.ts'
+import { takeSample } from './sample.ts'
 import * as service from './store/service.ts'
 import { sparkline } from './view/sparkline.ts'
 
@@ -48,7 +74,7 @@ const listOptions = z.object({
 
 type ListOptions = z.infer<typeof listOptions>
 
-function selectProcesses(procs: Awaited<ReturnType<typeof snapshot>>['processes'], o: ListOptions) {
+function selectProcesses(procs: ProcessInfo[], o: ListOptions) {
   const filtered = sortProcesses(filterProcesses(procs, o.filter, o.user), o.sortBy, o.order)
   return o.limit > 0 ? filtered.slice(0, o.limit) : filtered
 }
@@ -83,6 +109,34 @@ function note(feature: string, message: string, level: LogLevel = 'info') {
   logEvent(level, feature, message)
 }
 
+function probeOff(name: string) {
+  return { code: 'PROBE_DISABLED' as const, message: `probe ${name} is off — sloppytop probe enable ${name}` }
+}
+
+function setProbes(
+  c: { error: (body: { code: 'BAD_PROBE'; message: string }) => unknown },
+  text: string,
+  enabled: boolean,
+) {
+  const { names, unknown } = parseProbeList(text)
+  if (unknown.length > 0 || names.length === 0) {
+    const message =
+      unknown.length > 0
+        ? `unknown probe ${unknown.join(', ')}. Known probes: ${PROBE_NAMES.join(', ')}`
+        : 'name at least one probe'
+    note('probe', message, 'error')
+    return c.error({ code: 'BAD_PROBE', message })
+  }
+  const config = updateProbes(names, enabled)
+  note('probe', `${enabled ? 'enable' : 'disable'} ${names.join(',')}`)
+  return { probes: config.probes }
+}
+
+async function scrapeSample(sampleMs: number) {
+  const { system } = await takeSample(sampleMs)
+  return system
+}
+
 Cli.create('sloppytop', {
   description:
     'System monitor for humans and agents — realtime process/CPU/memory/disk/network reporting',
@@ -98,8 +152,10 @@ Cli.create('sloppytop', {
       refresh: z.boolean().default(false).describe('Re-read the platform and replace the cache'),
     }),
     run(c) {
+      if (!loadConfig().probes.hardware) return c.error(probeOff('hardware'))
       try {
         const report = hardwareInventory({ refresh: c.options.refresh })
+        appendProbeLog([hardwareEntry(report)])
         note('hardware', report.from_cache ? 'cache hit' : 'fresh inventory')
         return c.ok(report)
       } catch (err) {
@@ -114,11 +170,11 @@ Cli.create('sloppytop', {
   })
   .command('system', {
     description:
-      'System-wide stats: CPU, memory, disk, per-device throughput and latency, network, load, host info. On macOS, GPU utilization and in-use GPU memory are included when AGX PerformanceStatistics is present.',
+      'System-wide stats: CPU, memory, disk, per-device throughput and latency, network, load, host info. On macOS, GPU utilization and in-use GPU memory are included when AGX PerformanceStatistics is present. Temperatures, fan speeds, memory composition, page rates, thermal state, and P/E core labels are included when the platform measures them.',
     options: z.object({ sampleMs: listOptions.shape.sampleMs }),
     async run(c) {
-      const { system } = await snapshot(c.options.sampleMs)
-      note('system', `cpu ${system.cpu_usage_total} processes ${system.process_count}`)
+      const { system } = await takeSample(c.options.sampleMs)
+      note('system', `cpu ${system.cpu_usage_total ?? 'off'} processes ${system.process_count ?? 'off'}`)
       return c.ok(system, {
         cta: {
           commands: [
@@ -149,9 +205,11 @@ Cli.create('sloppytop', {
         .describe('Max connections (0 = all). Idle connections are omitted'),
     }),
     async run(c) {
+      if (!loadConfig().probes.connections) return c.error(probeOff('connections'))
       try {
         const rows = await sampleNet(c.options.sampleMs)
         const shown = c.options.limit > 0 ? rows.slice(0, c.options.limit) : rows
+        appendProbeLog([countEntry('connections', shown.length)])
         note('net', `${shown.length} connections`)
         return c.ok(
           { count: shown.length, sample_ms: c.options.sampleMs, connections: shown },
@@ -174,8 +232,10 @@ Cli.create('sloppytop', {
     description:
       'Local TCP sockets in LISTEN. Not a remote scan and not a packet capture. A missing tool is an error; sockets the tool cannot see are omitted.',
     run(c) {
+      if (!loadConfig().probes.listen) return c.error(probeOff('listen'))
       try {
         const sockets = listeningSockets()
+        appendProbeLog([countEntry('listen', sockets.length)])
         note('listen', `${sockets.length} sockets`)
         return c.ok(
           { count: sockets.length, sockets },
@@ -196,7 +256,7 @@ Cli.create('sloppytop', {
   })
   .command('processes', {
     description:
-      'List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, and phys_footprint_bytes is the physical footprint when the rusage read succeeds. On Linux, cgroup is the cgroup2 path.',
+      'List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, phys_footprint_bytes is the physical footprint when the rusage read succeeds, idle_wakeups_per_s is the package-idle wakeup rate, and owning_app is set when the executable is inside an .app bundle. On Linux, cgroup is the cgroup2 path.',
     options: listOptions.extend({
       pin: z
         .string()
@@ -206,7 +266,8 @@ Cli.create('sloppytop', {
         ),
     }),
     async run(c) {
-      const { processes } = await snapshot(c.options.sampleMs)
+      if (!loadConfig().probes.processes) return c.error(probeOff('processes'))
+      const { processes } = await takeSample(c.options.sampleMs)
       let rows
       try {
         const sorted = sortProcesses(
@@ -257,7 +318,8 @@ Cli.create('sloppytop', {
       sampleMs: listOptions.shape.sampleMs,
     }),
     async run(c) {
-      const { system, processes } = await snapshot(c.options.sampleMs)
+      if (!loadConfig().probes.processes) return c.error(probeOff('processes'))
+      const { system, processes } = await takeSample(c.options.sampleMs)
       const sorted = sortProcesses(processes, c.options.by, 'desc')
       const rows = arrangePins(sorted, resolvePins(c.options.pin), c.options.count)
       note('top', `${rows.length} rows by ${c.options.by}`)
@@ -288,7 +350,8 @@ Cli.create('sloppytop', {
       sampleMs: listOptions.shape.sampleMs,
     }),
     async run(c) {
-      const { processes } = await snapshot(c.options.sampleMs)
+      if (!loadConfig().probes.processes) return c.error(probeOff('processes'))
+      const { processes } = await takeSample(c.options.sampleMs)
       let matched
       try {
         matched = filterProcesses(processes, c.options.filter, c.options.user)
@@ -331,7 +394,10 @@ Cli.create('sloppytop', {
         .describe('Include open files for this process. Omitted when they cannot be measured. Not stored by record'),
     }),
     async run(c) {
-      const { processes } = await snapshot(500)
+      const probes = loadConfig().probes
+      if (!probes.proc) return c.error(probeOff('proc'))
+      if (!probes.processes) return c.error(probeOff('processes'))
+      const { processes } = await takeSample(500)
       const proc = processes.find((p) => p.pid === c.args.pid)
       if (!proc) {
         note('proc', `pid ${c.args.pid} not found`, 'error')
@@ -341,6 +407,14 @@ Cli.create('sloppytop', {
       const parent = processes.find((p) => p.pid === proc.ppid)
       const detail = await processDetail(proc.pid)
       const files = c.options.files ? openFiles(proc.pid) : undefined
+      appendProbeLog([
+        procEntry({
+          pid: proc.pid,
+          children: children.length,
+          hasCwd: Boolean(detail.cwd),
+          fileCount: files ? files.length : null,
+        }),
+      ])
       if (c.options.files && !files) note('proc', `pid ${proc.pid} open files unavailable`, 'warn')
       else note('proc', `pid ${proc.pid}${files ? ` files ${files.length}` : ''}`)
       return c.ok(
@@ -364,7 +438,7 @@ Cli.create('sloppytop', {
     description: 'Full snapshot (system + all processes) — same shape as the Go CLI --json',
     options: z.object({ sampleMs: listOptions.shape.sampleMs }),
     async run(c) {
-      const { system, processes } = await snapshot(c.options.sampleMs)
+      const { system, processes } = await takeSample(c.options.sampleMs)
       note('snapshot', `${processes.length} processes`)
       return { version: pkg.version, system, processes }
     },
@@ -395,17 +469,21 @@ Cli.create('sloppytop', {
         throw err
       }
       note('watch', `interval ${c.options.intervalMs}ms`)
+      const probes = loadConfig().probes
       const mon = await Monitor.create()
+      mon.setFlags(collectFlags(probes))
       mon.refresh()
       for (let seq = 1; c.options.count === 0 || seq <= c.options.count; seq++) {
         await sleep(c.options.intervalMs)
         mon.refresh()
-        const rows = sortProcesses(
-          filterProcesses(mon.processes(), c.options.filter),
-          c.options.sortBy,
-          'desc',
-        ).slice(0, c.options.limit)
-        yield { seq, at: new Date().toISOString(), system: mon.stats(), processes: rows }
+        const at = new Date().toISOString()
+        const system = projectSystem(mon.stats(), probes)
+        const all = projectProcesses(mon.processes(), probes)
+        appendProbeLog(probeEntries(system, all, probes, at))
+        const rows = probes.processes
+          ? sortProcesses(filterProcesses(all, c.options.filter), c.options.sortBy, 'desc').slice(0, c.options.limit)
+          : []
+        yield { seq, at, system, processes: rows }
       }
     },
   })
@@ -413,8 +491,14 @@ Cli.create('sloppytop', {
     description: 'Take a snapshot and store it in the metrics SQLite DB (~/.config/sloppytop, or ~/.config/neohtop when that directory already exists)',
     async run(c) {
       const config = initConfig()
+      const blocked = disabledRecordProbes(config.probes)
+      if (blocked.length > 0) {
+        const message = `record needs these probes enabled: ${blocked.join(', ')}`
+        note('record', message, 'error')
+        return c.error({ code: 'PROBE_DISABLED', message })
+      }
       try {
-        const { system, processes } = await snapshot(config.record.sampleMs)
+        const { system, processes } = await takeSample(config.record.sampleMs)
         const db = openDb()
         try {
           const at = new Date().toISOString()
@@ -588,7 +672,7 @@ Cli.create('sloppytop', {
   })
   .command('config', {
     description:
-      'Show effective config and storage paths (~/.config/sloppytop, or ~/.config/neohtop when that directory already exists). Command events append to sloppytop.log, or neohtop.log when that file already exists.',
+      'Show effective config and storage paths (~/.config/sloppytop, or ~/.config/neohtop when that directory already exists). Command events append to sloppytop.log, or neohtop.log when that file already exists. Probe readings append to probes.jsonl. The metrics listener stays off until metrics.enabled is true.',
     run() {
       const db = openDb()
       const info = dbInfo(db)
@@ -602,11 +686,121 @@ Cli.create('sloppytop', {
           db: dbPath(),
           log: logPath(),
           event_log: eventLogPath(),
+          probe_log: probeLogPath(),
         },
         db: info,
       }
     },
   })
+  .command(
+    Cli.create('probe', {
+      description:
+        'Turn monitoring probes on or off. An off probe is omitted from command output, probes.jsonl, and GET /metrics. cpu, memory, disk, network, and host stay required for record.',
+    })
+      .command('list', {
+        description: 'Show the effective probe switches and the metrics listener settings',
+        run() {
+          const config = loadConfig()
+          note('probe', 'list')
+          return { probes: config.probes, metrics: config.metrics, probe_log: probeLogPath() }
+        },
+      })
+      .command('enable', {
+        description: 'Enable one or more probes (comma-separated)',
+        args: z.object({ names: z.string().describe('Probe names, comma-separated') }),
+        run(c) {
+          return setProbes(c, c.args.names, true)
+        },
+      })
+      .command('disable', {
+        description: 'Disable one or more probes (comma-separated)',
+        args: z.object({ names: z.string().describe('Probe names, comma-separated') }),
+        run(c) {
+          return setProbes(c, c.args.names, false)
+        },
+      }),
+  )
+  .command('log', {
+    description:
+      'Show recent probe log lines from probes.jsonl. Each enabled probe appends one JSON line when it runs. Process command lines and environment values are not written.',
+    options: z.object({
+      probe: z.string().optional().describe('Only this probe name'),
+      limit: z.coerce.number().int().min(1).default(50).describe('Newest lines to return'),
+    }),
+    run(c) {
+      const probe = c.options.probe
+      if (probe && !isProbeName(probe)) {
+        note('log', `unknown probe ${probe}`, 'error')
+        return c.error({
+          code: 'BAD_PROBE',
+          message: `unknown probe ${probe}. Known probes: ${PROBE_NAMES.join(', ')}`,
+        })
+      }
+      const entries = readProbeLog({
+        ...(probe && isProbeName(probe) ? { probe } : {}),
+        limit: c.options.limit,
+      })
+      note('log', `${entries.length} lines`)
+      return { count: entries.length, path: probeLogPath(), entries }
+    },
+  })
+  .command(
+    Cli.create('metrics', {
+      description:
+        'Prometheus scrape endpoint for the enabled probes. GET /metrics returns OpenMetrics text. The listener does not bind until metrics is enabled.',
+    })
+      .command('enable', {
+        description: 'Allow metrics serve to bind. Does not start the listener',
+        run() {
+          const config = updateMetrics({ enabled: true })
+          note('metrics', `enabled ${config.metrics.host}:${config.metrics.port}`)
+          return { enabled: true, host: config.metrics.host, port: config.metrics.port, path: '/metrics' }
+        },
+      })
+      .command('disable', {
+        description: 'Refuse metrics serve until enable is run again',
+        run() {
+          updateMetrics({ enabled: false })
+          note('metrics', 'disabled')
+          return { enabled: false }
+        },
+      })
+      .command('serve', {
+        description:
+          'Listen for GET /metrics until interrupted. Requires metrics.enabled. Each scrape samples the enabled probes and appends them to the probe log.',
+        async *run(c) {
+          const config = loadConfig()
+          if (!config.metrics.enabled) {
+            note('metrics', 'disabled', 'error')
+            return c.error({
+              code: 'METRICS_DISABLED',
+              message: 'metrics listener is off — sloppytop metrics enable',
+            })
+          }
+          let server: ReturnType<typeof Bun.serve>
+          try {
+            server = Bun.serve({
+              hostname: config.metrics.host,
+              port: config.metrics.port,
+              fetch: (request) => metricsResponse(request, () => scrapeSample(config.record.sampleMs)),
+            })
+          } catch (err) {
+            note('metrics', (err as Error).message, 'error')
+            return c.error({ code: 'METRICS_BIND_FAILED', message: (err as Error).message })
+          }
+          note('metrics', `listen ${config.metrics.host}:${server.port}`)
+          yield { listening: true, bind: `${config.metrics.host}:${server.port}`, path: '/metrics' }
+          await new Promise<void>((resolve) => {
+            const stop = () => {
+              server.stop(true)
+              resolve()
+            }
+            process.once('SIGINT', stop)
+            process.once('SIGTERM', stop)
+          })
+        },
+      }),
+  )
   .command(
     Cli.create('service', {
       description:
@@ -685,6 +879,14 @@ Cli.create('sloppytop', {
         },
       }),
   )
+  .command('tui', {
+    description: 'Open the process monitor screen. Quit with q. Other commands stay non-interactive.',
+    async run() {
+      const { runTui } = await import('./tui/run.ts')
+      await runTui()
+      return { closed: true }
+    },
+  })
   .command('kill', {
     description: 'Send a signal to a process',
     args: z.object({ pid: z.coerce.number().int().positive().describe('Process ID') }),

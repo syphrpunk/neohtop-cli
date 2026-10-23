@@ -20,6 +20,9 @@ const RUSAGE_V2_SIZE = 160
 const RUSAGE_PHYS_FOOTPRINT_OFF = 72
 const RUSAGE_DISKIO_READ_OFF = 144
 const RUSAGE_DISKIO_WRITE_OFF = 152
+// rusage_info_v2 after the 16-byte uuid: user time, system time, then
+// ri_pkg_idle_wkups. Same buffer as the disk counters.
+const RUSAGE_IDLE_WAKEUPS_OFF = 32
 // struct vnode_info_path = vnode_info (152) + char path[1024] = 1176;
 // proc_vnodepathinfo = { pvi_cdir, pvi_rdir } = 2352
 const VNODE_INFO_PATH_SIZE = 1176
@@ -64,6 +67,14 @@ export function taskInfo(pid: number): TaskInfo | null {
  * `ri_phys_footprint` in bytes. A short buffer or a value that is not a
  * safe integer is omitted. A measured 0 stays 0.
  */
+/** Cumulative package-idle wakeups. A measured 0 stays 0. */
+export function readIdleWakeups(view: DataView): number | undefined {
+  if (view.byteLength < RUSAGE_IDLE_WAKEUPS_OFF + 8) return undefined
+  const value = view.getBigUint64(RUSAGE_IDLE_WAKEUPS_OFF, true)
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) return undefined
+  return Number(value)
+}
+
 export function readPhysFootprint(view: DataView): number | undefined {
   if (view.byteLength < RUSAGE_PHYS_FOOTPRINT_OFF + 8) return undefined
   const value = view.getBigUint64(RUSAGE_PHYS_FOOTPRINT_OFF, true)
@@ -76,16 +87,20 @@ export function readPhysFootprint(view: DataView): number | undefined {
  * from the same buffer, the physical footprint. The call returns null when
  * libproc cannot read the process; footprint is then omitted too.
  */
-export function diskIO(pid: number): { read: number; write: number; footprint?: number } | null {
+export function diskIO(
+  pid: number,
+): { read: number; write: number; footprint?: number; idleWakeups?: number } | null {
   if (!lib) return null
   const buf = new ArrayBuffer(RUSAGE_V2_SIZE)
   if (lib.symbols.proc_pid_rusage(pid, RUSAGE_INFO_V2, ptr(buf)) !== 0) return null
   const view = new DataView(buf)
   const footprint = readPhysFootprint(view)
+  const idleWakeups = readIdleWakeups(view)
   return {
     read: Number(view.getBigUint64(RUSAGE_DISKIO_READ_OFF, true)),
     write: Number(view.getBigUint64(RUSAGE_DISKIO_WRITE_OFF, true)),
     ...(footprint !== undefined ? { footprint } : {}),
+    ...(idleWakeups !== undefined ? { idleWakeups } : {}),
   }
 }
 

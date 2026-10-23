@@ -8,7 +8,7 @@
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Release](https://img.shields.io/github/v/release/syphrpunk/neohtop-cli?color=purple)](https://github.com/syphrpunk/neohtop-cli/releases)
 
-A terminal process monitor — originally the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop) — built with Go and the [Charm](https://charm.sh) ecosystem.
+A terminal process monitor — originally the CLI companion to [NeoHtop](https://github.com/Abdenasser/NeoHtop). The prebuilt binary is `sloppytop`. `sloppytop tui` opens the screen.
 
 [Installation](#installation) · [Features](#features) · [Keybindings](#keybindings) · [Themes](#themes) · [Configuration](#configuration)
 
@@ -26,21 +26,17 @@ A terminal process monitor — originally the CLI companion to [NeoHtop](https:/
 
 ## Installation
 
-Download a prebuilt TUI binary from this repo's [releases](https://github.com/syphrpunk/neohtop-cli/releases). The TypeScript CLI binary on the same release is `sloppytop`.
+Download a prebuilt `sloppytop` binary from this repo's [releases](https://github.com/syphrpunk/neohtop-cli/releases). `sloppytop tui` opens the process monitor. `sloppytop --help` lists the other commands.
+
+The macOS release build is Apple Silicon. An Intel Mac runs this checkout with bun.
 
 <details>
-<summary><b>macOS</b></summary>
+<summary><b>macOS (Apple Silicon)</b></summary>
 
 ```bash
-# Apple Silicon
-curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-macos-arm64.tar.gz
-tar xzf sloppytop-cli-macos-arm64.tar.gz
-sudo mv sloppytop-cli-macos-arm64 /usr/local/bin/sloppytop-cli
-
-# Intel
-curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-macos-amd64.tar.gz
-tar xzf sloppytop-cli-macos-amd64.tar.gz
-sudo mv sloppytop-cli-macos-amd64 /usr/local/bin/sloppytop-cli
+curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-macos-arm64.tar.gz
+tar xzf sloppytop-macos-arm64.tar.gz
+sudo mv sloppytop-macos-arm64 /usr/local/bin/sloppytop
 ```
 
 </details>
@@ -50,14 +46,14 @@ sudo mv sloppytop-cli-macos-amd64 /usr/local/bin/sloppytop-cli
 
 ```bash
 # x86_64
-curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-linux-amd64.tar.gz
-tar xzf sloppytop-cli-linux-amd64.tar.gz
-sudo mv sloppytop-cli-linux-amd64 /usr/local/bin/sloppytop-cli
+curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-linux-amd64.tar.gz
+tar xzf sloppytop-linux-amd64.tar.gz
+sudo mv sloppytop-linux-amd64 /usr/local/bin/sloppytop
 
 # ARM64
-curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-cli-linux-arm64.tar.gz
-tar xzf sloppytop-cli-linux-arm64.tar.gz
-sudo mv sloppytop-cli-linux-arm64 /usr/local/bin/sloppytop-cli
+curl -LO https://github.com/syphrpunk/neohtop-cli/releases/latest/download/sloppytop-linux-arm64.tar.gz
+tar xzf sloppytop-linux-arm64.tar.gz
+sudo mv sloppytop-linux-arm64 /usr/local/bin/sloppytop
 ```
 
 </details>
@@ -65,22 +61,37 @@ sudo mv sloppytop-cli-linux-arm64 /usr/local/bin/sloppytop-cli
 <details>
 <summary><b>Windows</b></summary>
 
-Download [`sloppytop-cli-windows-amd64.zip`](https://github.com/syphrpunk/neohtop-cli/releases/latest) and add the extracted folder to your PATH.
+Download [`sloppytop-windows-amd64.tar.gz`](https://github.com/syphrpunk/neohtop-cli/releases/latest). The archive contains `sloppytop-windows-amd64.exe`.
+
+</details>
+
+<details>
+<summary><b>Intel Mac</b></summary>
+
+The release has no Intel Mac binary. Clone the repo and run the checkout:
+
+```bash
+git clone https://github.com/syphrpunk/neohtop-cli.git
+cd neohtop-cli
+mise install
+./st tui
+```
 
 </details>
 
 <details>
 <summary><b>Build from source</b></summary>
 
-Requires [mise](https://mise.jdx.dev) (installs Go, bun, and just from `mise.toml`) and a C compiler for CGo on macOS.
+Requires [mise](https://mise.jdx.dev) (installs Go, bun, and just from `mise.toml`).
 
 ```bash
 git clone https://github.com/syphrpunk/neohtop-cli.git
 cd neohtop-cli
-mise install   # installs Go, bun, and just
-just build
-just install   # optional — copies to /usr/local/bin/
+mise install
+./st tui
 ```
+
+The Go sources in `cli/` are not on the release. `just build` still writes `./sloppytop-cli` on this machine.
 
 </details>
 
@@ -121,7 +132,7 @@ Inspect details, kill processes, pin favorites to the top, toggle tree view
 <td>
 
 **JSON output**
-`sloppytop-cli --json` pipes structured data to `jq` for scripting and dashboards
+`sloppytop snapshot --format json` pipes structured data to `jq` for scripting and dashboards
 
 </td>
 <td>
@@ -138,9 +149,9 @@ macOS, Linux, and Windows — no runtime dependencies
 ## Quick Start
 
 ```bash
-sloppytop-cli          # launch the TUI
-sloppytop-cli --json   # one-shot JSON snapshot
-sloppytop-cli --help   # see all options
+sloppytop tui                      # open the process monitor
+sloppytop snapshot --format json   # one-shot JSON snapshot
+sloppytop --help                   # see all commands
 ```
 
 Press `?` inside the TUI to see every keybinding.
@@ -156,7 +167,7 @@ Press `?` inside the TUI to see every keybinding.
 | | `s` · `/` | Search (regex) |
 | | `Space` | Pause / resume |
 | | `Esc` | Close overlay / clear search |
-| **Navigate** | `↑` `↓` `j` `k` | Move selection |
+| **Navigate** | `↑` `↓` `j` | Move selection |
 | | `PgUp` · `PgDn` | Page scroll |
 | | `Home` · `g` / `End` · `G` | Jump to top / bottom |
 | **Process** | `i` · `Enter` | Inspect details |
@@ -207,34 +218,36 @@ Press `t` to open the theme selector with live color swatches.
 
 ## JSON Output
 
-`--json` outputs a single snapshot of system stats and all processes. Perfect for scripting:
+`snapshot --format json` outputs system stats and all processes:
 
 ```bash
 # top 10 by CPU
-sloppytop-cli --json | jq '[.processes[] | {name, cpu: .cpu_usage}] | sort_by(.cpu) | reverse[:10]'
+sloppytop snapshot --format json | jq '[.processes[] | {name, cpu: .cpu_usage}] | sort_by(.cpu) | reverse[:10]'
 
 # memory usage
-sloppytop-cli --json | jq '.system | {memory_used, memory_total, pct: (.memory_used/.memory_total*100|round)}'
+sloppytop snapshot --format json | jq '.system | {memory_used, memory_total, pct: (.memory_used/.memory_total*100|round)}'
 
 # watch mode
-watch -n2 'sloppytop-cli --json | jq ".system.cpu_usage_per_core"'
+watch -n2 'sloppytop snapshot --format json | jq ".system.cpu_usage_per_core"'
 ```
 
 <br/>
 
 ## Configuration
 
-Settings persist at `~/.config/sloppytop-cli/config.json`. An existing `~/.config/neohtop-cli/config.json` is kept when the new file is absent:
+Screen settings persist at `~/.config/sloppytop/config.json`. An existing `~/.config/neohtop` directory stays in use until the new directory exists.
 
 ```json
 {
-  "columns": ["pid", "name", "cpu", "memory", "status", "user", "command"],
-  "refresh_rate_ms": 1000,
-  "theme": "charm"
+  "tui": {
+    "columns": ["pid", "name", "command", "threads", "user", "memory", "cpu"],
+    "refreshMs": 1000,
+    "theme": "charm"
+  }
 }
 ```
 
-**Columns:** `pid` `name` `cpu` `memory` `status` `user` `command` `threads` `runtime` `disk`
+**Columns:** `pid` `name` `command` `threads` `user` `memory` `cpu` `status` `runtime` `disk`
 
 **Refresh rates** — cycle with `r`: 1s *(default)* → 2s → 3s → 5s → 0.5s
 
@@ -242,7 +255,7 @@ Settings persist at `~/.config/sloppytop-cli/config.json`. An existing `~/.confi
 
 ## Architecture
 
-Pure Go application using native OS APIs — no FFI, no external dependencies.
+The prebuilt binary is the TypeScript CLI. The Go sources in `cli/` use native OS APIs and are not release assets.
 
 ```
 ┌──────────────────────────────────────────┐

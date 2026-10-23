@@ -22,5 +22,21 @@ describe('renderOpenMetrics', () => {
     expect(text).toContain('sloppytop_network_rx_bytes_per_second 10\n')
     expect(text).toContain('sloppytop_process_count 80\n')
     expect(text.endsWith('# EOF\n')).toBe(true)
+    expect(text).not.toContain('sloppytop_temperature_celsius')
+    expect(text).not.toContain('sloppytop_memory_app_bytes')
+  })
+
+  test('emits a measured zero and a temperature label when the sample has them', () => {
+    const text = renderOpenMetrics({
+      ...row,
+      memory_app_bytes: 0,
+      pageins_per_s: 1.5,
+      temperatures: [{ name: 'soc "die"', celsius: 42 }],
+      fans: [{ name: 'fan1', rpm: 0 }],
+    })
+    expect(text).toContain('sloppytop_memory_app_bytes 0\n')
+    expect(text).toContain('sloppytop_pageins_per_second 1.5\n')
+    expect(text).toContain('sloppytop_temperature_celsius{sensor="soc \\"die\\""} 42\n')
+    expect(text).toContain('sloppytop_fan_rpm{fan="fan1"} 0\n')
   })
 })

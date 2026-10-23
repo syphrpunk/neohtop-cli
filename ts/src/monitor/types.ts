@@ -35,6 +35,17 @@ export interface ProcessInfo {
    * A measured 0 stays 0. Not stored by `record`. Leak reports stay on RSS.
    */
   phys_footprint_bytes?: number
+  /**
+   * Package-idle wakeups per second from `ri_pkg_idle_wkups`.
+   * Omitted on the first refresh and when the counter goes backwards.
+   * A measured 0 stayed idle. Not stored by `record`.
+   */
+  idle_wakeups_per_s?: number
+  /**
+   * Nearest enclosing `.app` bundle on the executable path.
+   * Not a configured process group. Not stored by `record`.
+   */
+  owning_app?: string
 }
 
 /** Expensive per-process fields fetched on demand (port of ProcessDetail) */
@@ -116,6 +127,39 @@ export interface SystemStats {
   gpu_renderer_utilization_percent?: number
   gpu_tiler_utilization_percent?: number
   gpu_memory_bytes?: number
+  /**
+   * Sensor readings. Omitted when none were measured. A celsius or rpm of 0
+   * is a real reading. Not a temperature limit and not an alert.
+   * TS-only until the Go monitor grows the same fields.
+   */
+  temperatures?: TemperatureReading[]
+  fans?: FanReading[]
+  /**
+   * macOS `NSProcessInfo.thermalState`. Nominal is also what the API returns
+   * when the platform has no separate unsupported value, so this is not a
+   * critical limit and not thermal headroom.
+   */
+  thermal_state?: ThermalState
+  /**
+   * Memory composition in bytes. Independent of `memory_used`: on macOS the
+   * wired, compressed, and app fields are the three parts of that total, and
+   * cached is file-backed. On Linux, app is `AnonPages` and cached is
+   * `Buffers` + `Cached`. A missing key is omitted. A measured 0 is stored.
+   */
+  memory_wired_bytes?: number
+  memory_compressed_bytes?: number
+  memory_app_bytes?: number
+  memory_cached_bytes?: number
+  /** Page and compression events per second. Omitted on the first refresh. */
+  pageins_per_s?: number
+  pageouts_per_s?: number
+  compressions_per_s?: number
+  decompressions_per_s?: number
+  /**
+   * Parallel to `cpu_usage_per_core`. macOS `hw.perflevel*` names, level 0
+   * first, and only when those counts sum to the core array. Not a frequency.
+   */
+  cpu_core_kinds?: CpuCoreKind[]
 }
 
 export interface DiskDevice {
@@ -127,9 +171,33 @@ export interface DiskDevice {
   /** Average service time over the interval, milliseconds. */
   read_latency_ms?: number
   write_latency_ms?: number
+  /**
+   * Merged requests per second. Linux diskstats only. Omitted when the
+   * platform has no merge counter. A measured 0 had no merges.
+   */
+  read_merges_per_s?: number
+  write_merges_per_s?: number
+  /**
+   * Average request size over the interval, bytes. Omitted when that
+   * direction had no operations. A measured 0 is an empty transfer.
+   */
+  read_request_bytes?: number
+  write_request_bytes?: number
 }
 
 export type MemoryPressureLevel = 'normal' | 'warning' | 'critical'
+export type ThermalState = 'nominal' | 'fair' | 'serious' | 'critical'
+export type CpuCoreKind = 'performance' | 'efficiency' | 'unknown'
+
+export interface TemperatureReading {
+  name: string
+  celsius: number
+}
+
+export interface FanReading {
+  name: string
+  rpm: number
+}
 
 // ---- Internal platform-sample contract ----
 
@@ -161,6 +229,10 @@ export interface RawProc {
   cgroup?: string
   /** macOS physical footprint in bytes. Absent when the rusage read fails. */
   physFootprintBytes?: number
+  /** Cumulative `ri_pkg_idle_wkups`. Monitor computes the rate. */
+  idleWakeupsTotal?: number
+  /** Nearest `.app` bundle on the executable path. */
+  owningApp?: string
 }
 
 export interface PlatformSample {
@@ -205,10 +277,30 @@ export interface PlatformSample {
   /** Cumulative AGX GPU time in nanoseconds, keyed by pid. Absent when unread. */
   gpuTimeNs?: Map<number, bigint>
   /**
-   * System-wide AGX `PerformanceStatistics`. Absent when the dictionary
-   * was not read. Independent of `gpuTimeNs`.
+   * System-wide GPU activity. macOS reads AGX `PerformanceStatistics`.
+   * Linux reads sysfs `gpu_busy_percent` and `mem_info_vram_used` when
+   * those files exist. Absent when nothing was read. Independent of `gpuTimeNs`.
    */
   gpuActivity?: GpuActivity
+  /** Bytes. Each field is omitted when that counter was not read. A measured 0 stays 0. */
+  memoryWired?: number
+  memoryCompressed?: number
+  memoryApp?: number
+  memoryCached?: number
+  /** Cumulative page and compression counters. Monitor turns the delta into rates. */
+  pageCounters?: PageCounters
+  /** Same length as `cpuPerCoreTicks`, or absent. */
+  cpuCoreKinds?: CpuCoreKind[]
+  temperatures?: TemperatureReading[]
+  fans?: FanReading[]
+  thermalState?: ThermalState
+}
+
+export interface PageCounters {
+  pageins?: number
+  pageouts?: number
+  compressions?: number
+  decompressions?: number
 }
 
 /** System-wide AGX utilization. Each field is omitted when that key is absent. */
@@ -228,4 +320,7 @@ export interface DiskCounters {
   writeOps: bigint
   readTimeNs?: bigint
   writeTimeNs?: bigint
+  /** Linux diskstats merge counters. Absent on macOS and Windows. */
+  readMerges?: bigint
+  writeMerges?: bigint
 }

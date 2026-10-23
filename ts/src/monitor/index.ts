@@ -5,10 +5,13 @@ import { platform } from 'node:os'
 import { diskRates } from './disk.ts'
 import { powerWatts } from './energy.ts'
 import { gpuTimeDeltas } from './gpu.ts'
+import { pageRates, type PageRates } from './memory.ts'
+import type { CollectFlags } from './probes.ts'
 import type { EnergyNj } from './energy.ts'
 import type {
   DiskCounters,
   DiskDevice,
+  PageCounters,
   PlatformSample,
   ProcessDetail,
   ProcessInfo,
@@ -24,13 +27,15 @@ interface PrevSample {
   coreTicks?: { busy: number; total: number }[]
   procTicks: Map<number, number>
   procDisk: Map<number, { read: number; write: number }>
+  procWakeups: Map<number, number>
+  pageCounters?: PageCounters
   energyNj?: EnergyNj
   disks?: DiskCounters[]
   gpuTimeNs?: Map<number, bigint>
 }
 
 interface PlatformImpl {
-  collect: () => PlatformSample
+  collect: (flags?: CollectFlags) => PlatformSample
   detail: (pid: number) => ProcessDetail
 }
 
@@ -59,6 +64,9 @@ export class Monitor {
   #procGpuMs = new Map<number, number>()
   #procCpu = new Map<number, number>()
   #procDiskRate = new Map<number, { read: number; write: number }>()
+  #procWakeupRate = new Map<number, number>()
+  #pageRates: PageRates = {}
+  #flags: CollectFlags | undefined
 
   static async create(): Promise<Monitor> {
     const m = new Monitor()
@@ -66,8 +74,12 @@ export class Monitor {
     return m
   }
 
+  setFlags(flags: CollectFlags | undefined): void {
+    this.#flags = flags
+  }
+
   refresh(): void {
-    const sample = this.#impl.collect()
+    const sample = this.#impl.collect(this.#flags)
     const at = Date.now()
     const prev = this.#prev
     const elapsed = prev ? (at - prev.at) / 1000 : 0
@@ -80,6 +92,7 @@ export class Monitor {
     this.#power = powerWatts(prev?.energyNj, sample.energyNj, elapsed)
     this.#diskDevices = diskRates(prev?.disks, sample.disks ?? [], elapsed)
     this.#procGpuMs = gpuTimeDeltas(prev?.gpuTimeNs, sample.gpuTimeNs, elapsed)
+    this.#pageRates = pageRates(prev?.pageCounters, sample.pageCounters, elapsed)
 
     // Per-core CPU% from tick deltas (Linux)
     if (sample.cpuPerCoreTicks) {
@@ -104,6 +117,16 @@ export class Monitor {
           write: Math.max(0, (cur.write - p.write) / elapsed),
         })
       }
+    }
+
+    this.#procWakeupRate.clear()
+    const procWakeups = new Map<number, number>()
+    for (const proc of sample.procs) {
+      if (proc.idleWakeupsTotal === undefined) continue
+      procWakeups.set(proc.pid, proc.idleWakeupsTotal)
+      const prior = prev?.procWakeups?.get(proc.pid)
+      if (prior === undefined || !(elapsed > 0) || proc.idleWakeupsTotal < prior) continue
+      this.#procWakeupRate.set(proc.pid, (proc.idleWakeupsTotal - prior) / elapsed)
     }
 
     // Per-process CPU%
@@ -136,6 +159,8 @@ export class Monitor {
       coreTicks: sample.cpuPerCoreTicks,
       procTicks,
       procDisk,
+      procWakeups,
+      ...(sample.pageCounters ? { pageCounters: sample.pageCounters } : {}),
       ...(sample.energyNj ? { energyNj: sample.energyNj } : {}),
       ...(sample.disks ? { disks: sample.disks } : {}),
       ...(sample.gpuTimeNs ? { gpuTimeNs: sample.gpuTimeNs } : {}),
@@ -181,6 +206,10 @@ export class Monitor {
       process_count: s.procs.length,
       ...optionalSystemStats(s),
       ...powerFields(this.#power),
+      ...this.#pageRates,
+      ...(s.cpuCoreKinds && s.cpuCoreKinds.length === perCore.length
+        ? { cpu_core_kinds: s.cpuCoreKinds }
+        : {}),
       ...(this.#diskDevices.length > 0 ? { disk_devices: this.#diskDevices } : {}),
     }
   }
@@ -191,6 +220,7 @@ export class Monitor {
     return s.procs.map((p) => {
       const disk = this.#procDiskRate.get(p.pid)
       const gpu = this.#procGpuMs.get(p.pid)
+      const wakeups = this.#procWakeupRate.get(p.pid)
       return {
         pid: p.pid,
         ppid: p.ppid,
@@ -208,6 +238,8 @@ export class Monitor {
         ...(gpu !== undefined ? { gpu_time_ms: gpu } : {}),
         ...(p.cgroup !== undefined ? { cgroup: p.cgroup } : {}),
         ...(p.physFootprintBytes !== undefined ? { phys_footprint_bytes: p.physFootprintBytes } : {}),
+        ...(wakeups !== undefined ? { idle_wakeups_per_s: round3(wakeups) } : {}),
+        ...(p.owningApp ? { owning_app: p.owningApp } : {}),
       }
     })
   }
@@ -232,6 +264,13 @@ export function optionalSystemStats(s: PlatformSample): Partial<SystemStats> {
   if (s.psiIoSomeAvg10 !== undefined) out.psi_io_some_avg10 = round2(s.psiIoSomeAvg10)
   if (s.psiMemorySomeAvg10 !== undefined) out.psi_memory_some_avg10 = round2(s.psiMemorySomeAvg10)
   if (s.memoryPressureLevel !== undefined) out.memory_pressure_level = s.memoryPressureLevel
+  if (s.memoryWired !== undefined) out.memory_wired_bytes = Math.round(s.memoryWired)
+  if (s.memoryCompressed !== undefined) out.memory_compressed_bytes = Math.round(s.memoryCompressed)
+  if (s.memoryApp !== undefined) out.memory_app_bytes = Math.round(s.memoryApp)
+  if (s.memoryCached !== undefined) out.memory_cached_bytes = Math.round(s.memoryCached)
+  if (s.temperatures && s.temperatures.length > 0) out.temperatures = s.temperatures
+  if (s.fans && s.fans.length > 0) out.fans = s.fans
+  if (s.thermalState) out.thermal_state = s.thermalState
   const gpu = s.gpuActivity
   if (gpu) {
     if (gpu.devicePercent !== undefined) out.gpu_utilization_percent = gpu.devicePercent
@@ -267,11 +306,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
  * One-shot snapshot. Samples twice `sampleMs` apart so delta-based metrics
  * (Linux CPU%, network rates) are real instead of zero.
  */
-export async function snapshot(sampleMs = 500): Promise<{
+export async function snapshot(sampleMs = 500, flags?: CollectFlags): Promise<{
   system: SystemStats
   processes: ProcessInfo[]
 }> {
   const mon = await Monitor.create()
+  mon.setFlags(flags)
   mon.refresh()
   await sleep(sampleMs)
   mon.refresh()

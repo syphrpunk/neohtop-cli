@@ -3,7 +3,15 @@
 // the series back for reporting.
 
 import { Database } from 'bun:sqlite'
-import type { DiskDevice, ProcessInfo, SystemStats } from '../monitor/types.ts'
+import type {
+  CpuCoreKind,
+  DiskDevice,
+  FanReading,
+  ProcessInfo,
+  SystemStats,
+  TemperatureReading,
+  ThermalState,
+} from '../monitor/types.ts'
 import { dbPath, ensureConfigDir } from './config.ts'
 
 const SCHEMA = `
@@ -38,7 +46,19 @@ CREATE TABLE IF NOT EXISTS system_samples (
   gpu_power_watts REAL,
   ane_power_watts REAL,
   dram_power_watts REAL,
-  disk_devices TEXT
+  disk_devices TEXT,
+  temperatures TEXT,
+  fans TEXT,
+  thermal_state TEXT,
+  memory_wired_bytes INTEGER,
+  memory_compressed_bytes INTEGER,
+  memory_app_bytes INTEGER,
+  memory_cached_bytes INTEGER,
+  pageins_per_s REAL,
+  pageouts_per_s REAL,
+  compressions_per_s REAL,
+  decompressions_per_s REAL,
+  cpu_core_kinds TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_system_samples_at ON system_samples(at);
 CREATE TABLE IF NOT EXISTS process_samples (
@@ -74,6 +94,18 @@ const ADDED_SYSTEM_COLUMNS: [name: string, type: string][] = [
   ['ane_power_watts', 'REAL'],
   ['dram_power_watts', 'REAL'],
   ['disk_devices', 'TEXT'],
+  ['temperatures', 'TEXT'],
+  ['fans', 'TEXT'],
+  ['thermal_state', 'TEXT'],
+  ['memory_wired_bytes', 'INTEGER'],
+  ['memory_compressed_bytes', 'INTEGER'],
+  ['memory_app_bytes', 'INTEGER'],
+  ['memory_cached_bytes', 'INTEGER'],
+  ['pageins_per_s', 'REAL'],
+  ['pageouts_per_s', 'REAL'],
+  ['compressions_per_s', 'REAL'],
+  ['decompressions_per_s', 'REAL'],
+  ['cpu_core_kinds', 'TEXT'],
 ]
 
 /** Existing databases were created before these columns. CREATE IF NOT EXISTS will not add them. */
@@ -122,8 +154,18 @@ export function insertSample(
       psi_cpu_some_avg10, psi_io_some_avg10, psi_memory_some_avg10,
       memory_pressure_level,
       cpu_power_watts, gpu_power_watts, ane_power_watts, dram_power_watts,
-      disk_devices
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      disk_devices,
+      temperatures, fans, thermal_state,
+      memory_wired_bytes, memory_compressed_bytes, memory_app_bytes, memory_cached_bytes,
+      pageins_per_s, pageouts_per_s, compressions_per_s, decompressions_per_s,
+      cpu_core_kinds
+    ) VALUES (
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?
+    )
   `)
   const insertProcess = db.prepare(`
     INSERT INTO process_samples (
@@ -165,6 +207,20 @@ export function insertSample(
   const dramWatts = system.dram_power_watts !== undefined ? system.dram_power_watts : null
   const diskDevices =
     system.disk_devices !== undefined ? JSON.stringify(system.disk_devices) : null
+  const temperatures = jsonOrNull(system.temperatures)
+  const fans = jsonOrNull(system.fans)
+  const thermalState = system.thermal_state ?? null
+  const memoryWired = system.memory_wired_bytes !== undefined ? system.memory_wired_bytes : null
+  const memoryCompressed =
+    system.memory_compressed_bytes !== undefined ? system.memory_compressed_bytes : null
+  const memoryApp = system.memory_app_bytes !== undefined ? system.memory_app_bytes : null
+  const memoryCached = system.memory_cached_bytes !== undefined ? system.memory_cached_bytes : null
+  const pageins = system.pageins_per_s !== undefined ? system.pageins_per_s : null
+  const pageouts = system.pageouts_per_s !== undefined ? system.pageouts_per_s : null
+  const compressions = system.compressions_per_s !== undefined ? system.compressions_per_s : null
+  const decompressions =
+    system.decompressions_per_s !== undefined ? system.decompressions_per_s : null
+  const coreKinds = jsonOrNull(system.cpu_core_kinds)
 
   const run = db.transaction(() => {
     const { lastInsertRowid } = insertSystem.run(
@@ -198,6 +254,18 @@ export function insertSample(
       aneWatts,
       dramWatts,
       diskDevices,
+      temperatures,
+      fans,
+      thermalState,
+      memoryWired,
+      memoryCompressed,
+      memoryApp,
+      memoryCached,
+      pageins,
+      pageouts,
+      compressions,
+      decompressions,
+      coreKinds,
     )
     const sampleId = Number(lastInsertRowid)
     for (const p of top) {
@@ -253,6 +321,18 @@ export interface HistoryRow {
   ane_power_watts?: number
   dram_power_watts?: number
   disk_devices?: DiskDevice[]
+  temperatures?: TemperatureReading[]
+  fans?: FanReading[]
+  thermal_state?: ThermalState
+  memory_wired_bytes?: number
+  memory_compressed_bytes?: number
+  memory_app_bytes?: number
+  memory_cached_bytes?: number
+  pageins_per_s?: number
+  pageouts_per_s?: number
+  compressions_per_s?: number
+  decompressions_per_s?: number
+  cpu_core_kinds?: CpuCoreKind[]
 }
 
 interface HistorySqlRow {
@@ -278,6 +358,18 @@ interface HistorySqlRow {
   ane_power_watts: number | null
   dram_power_watts: number | null
   disk_devices: string | null
+  temperatures: string | null
+  fans: string | null
+  thermal_state: string | null
+  memory_wired_bytes: number | null
+  memory_compressed_bytes: number | null
+  memory_app_bytes: number | null
+  memory_cached_bytes: number | null
+  pageins_per_s: number | null
+  pageouts_per_s: number | null
+  compressions_per_s: number | null
+  decompressions_per_s: number | null
+  cpu_core_kinds: string | null
 }
 
 function historyRow(row: HistorySqlRow): HistoryRow {
@@ -316,6 +408,21 @@ function historyRow(row: HistorySqlRow): HistoryRow {
       // A corrupt rollup is omitted. The rest of the sample stays readable.
     }
   }
+  const temperatures = parseTemperatures(row.temperatures)
+  const fans = parseFans(row.fans)
+  const coreKinds = parseCoreKinds(row.cpu_core_kinds)
+  if (temperatures) out.temperatures = temperatures
+  if (fans) out.fans = fans
+  if (coreKinds) out.cpu_core_kinds = coreKinds
+  if (isThermalState(row.thermal_state)) out.thermal_state = row.thermal_state
+  if (row.memory_wired_bytes != null) out.memory_wired_bytes = row.memory_wired_bytes
+  if (row.memory_compressed_bytes != null) out.memory_compressed_bytes = row.memory_compressed_bytes
+  if (row.memory_app_bytes != null) out.memory_app_bytes = row.memory_app_bytes
+  if (row.memory_cached_bytes != null) out.memory_cached_bytes = row.memory_cached_bytes
+  if (row.pageins_per_s != null) out.pageins_per_s = row.pageins_per_s
+  if (row.pageouts_per_s != null) out.pageouts_per_s = row.pageouts_per_s
+  if (row.compressions_per_s != null) out.compressions_per_s = row.compressions_per_s
+  if (row.decompressions_per_s != null) out.decompressions_per_s = row.decompressions_per_s
   return out
 }
 
@@ -329,7 +436,10 @@ export function queryHistory(db: Database, sinceIso: string, limit: number): His
               psi_cpu_some_avg10, psi_io_some_avg10, psi_memory_some_avg10,
               memory_pressure_level,
               cpu_power_watts, gpu_power_watts, ane_power_watts, dram_power_watts,
-              disk_devices
+              disk_devices, temperatures, fans, thermal_state,
+              memory_wired_bytes, memory_compressed_bytes, memory_app_bytes, memory_cached_bytes,
+              pageins_per_s, pageouts_per_s, compressions_per_s, decompressions_per_s,
+              cpu_core_kinds
        FROM system_samples WHERE at >= ? ORDER BY at DESC LIMIT ?`,
     )
     .all(sinceIso, limit) as HistorySqlRow[]
@@ -343,6 +453,63 @@ export function queryTopProcesses(db: Database, sampleId: number): Record<string
        FROM process_samples WHERE sample_id = ? ORDER BY cpu_usage DESC`,
     )
     .all(sampleId) as Record<string, unknown>[]
+}
+
+function jsonOrNull(value: unknown[] | undefined): string | null {
+  return value !== undefined && value.length > 0 ? JSON.stringify(value) : null
+}
+
+function parseJson(text: string | null): unknown[] | undefined {
+  if (text == null) return
+  try {
+    const parsed = JSON.parse(text) as unknown
+    return Array.isArray(parsed) ? parsed : undefined
+  } catch {
+    return
+  }
+}
+
+function parseTemperatures(text: string | null): TemperatureReading[] | undefined {
+  const parsed = parseJson(text)
+  if (!parsed || parsed.length === 0) return
+  const out: TemperatureReading[] = []
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') return
+    const rec = item as Record<string, unknown>
+    if (typeof rec['name'] !== 'string' || typeof rec['celsius'] !== 'number' || !Number.isFinite(rec['celsius'])) {
+      return
+    }
+    out.push({ name: rec['name'], celsius: rec['celsius'] })
+  }
+  return out
+}
+
+function parseFans(text: string | null): FanReading[] | undefined {
+  const parsed = parseJson(text)
+  if (!parsed || parsed.length === 0) return
+  const out: FanReading[] = []
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') return
+    const rec = item as Record<string, unknown>
+    if (typeof rec['name'] !== 'string' || typeof rec['rpm'] !== 'number' || !Number.isFinite(rec['rpm'])) return
+    out.push({ name: rec['name'], rpm: rec['rpm'] })
+  }
+  return out
+}
+
+function parseCoreKinds(text: string | null): CpuCoreKind[] | undefined {
+  const parsed = parseJson(text)
+  if (!parsed || parsed.length === 0) return
+  const out: CpuCoreKind[] = []
+  for (const item of parsed) {
+    if (item !== 'performance' && item !== 'efficiency' && item !== 'unknown') return
+    out.push(item)
+  }
+  return out
+}
+
+function isThermalState(value: string | null): value is ThermalState {
+  return value === 'nominal' || value === 'fair' || value === 'serious' || value === 'critical'
 }
 
 export function dbInfo(db: Database): { samples: number; first?: string; last?: string } {

@@ -37,16 +37,20 @@ export function parseDiskstats(text: string): DiskCounters[] {
     const name = f[2]
     if (!name || !isWholeDisk(name)) continue
     const readOps = nat(f[3])
+    const readMerges = nat(f[4])
     const readSectors = nat(f[5])
     const readMs = nat(f[6])
     const writeOps = nat(f[7])
+    const writeMerges = nat(f[8])
     const writeSectors = nat(f[9])
     const writeMs = nat(f[10])
     if (
       readOps === undefined ||
+      readMerges === undefined ||
       readSectors === undefined ||
       readMs === undefined ||
       writeOps === undefined ||
+      writeMerges === undefined ||
       writeSectors === undefined ||
       writeMs === undefined
     ) {
@@ -60,6 +64,8 @@ export function parseDiskstats(text: string): DiskCounters[] {
       writeOps,
       readTimeNs: readMs * NS_PER_MS,
       writeTimeNs: writeMs * NS_PER_MS,
+      readMerges,
+      writeMerges,
     })
   }
   return out
@@ -126,6 +132,9 @@ export function diskRates(
     const readOps = cur.readOps - was.readOps
     const writeOps = cur.writeOps - was.writeOps
     if (readBytes < 0n || writeBytes < 0n || readOps < 0n || writeOps < 0n) continue
+    const readMerges = mergeDelta(was.readMerges, cur.readMerges)
+    const writeMerges = mergeDelta(was.writeMerges, cur.writeMerges)
+    if (readMerges === null || writeMerges === null) continue
     const device: DiskDevice = {
       name: cur.name,
       read_bytes_per_s: Math.round(Number(readBytes) / elapsedSec),
@@ -137,10 +146,28 @@ export function diskRates(
     const writeLatency = latencyMs(was.writeTimeNs, cur.writeTimeNs, writeOps)
     if (readLatency !== undefined) device.read_latency_ms = readLatency
     if (writeLatency !== undefined) device.write_latency_ms = writeLatency
+    if (readMerges !== undefined) device.read_merges_per_s = round1(Number(readMerges) / elapsedSec)
+    if (writeMerges !== undefined) device.write_merges_per_s = round1(Number(writeMerges) / elapsedSec)
+    const readRequest = requestBytes(readBytes, readOps)
+    const writeRequest = requestBytes(writeBytes, writeOps)
+    if (readRequest !== undefined) device.read_request_bytes = readRequest
+    if (writeRequest !== undefined) device.write_request_bytes = writeRequest
     out.push(device)
   }
   out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   return out
+}
+
+/** Undefined when either sample has no merge counter. Null when the counter went backwards. */
+function mergeDelta(prev: bigint | undefined, next: bigint | undefined): bigint | undefined | null {
+  if (prev === undefined || next === undefined) return
+  if (next < prev) return null
+  return next - prev
+}
+
+function requestBytes(bytes: bigint, ops: bigint): number | undefined {
+  if (ops <= 0n) return
+  return Math.round(Number(bytes) / Number(ops))
 }
 
 function latencyMs(

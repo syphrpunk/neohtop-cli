@@ -25,6 +25,11 @@ let subscribed: Pointer | null = null
 let group: Pointer | null = null
 let unavailable = false
 
+function asPtr(value: bigint | number | Pointer | null | undefined): Pointer | null {
+  if (value === null || value === undefined || value === 0 || value === 0n) return null
+  return value as unknown as Pointer
+}
+
 function openCf() {
   return dlopen('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation', {
     CFStringCreateWithCString: { args: ['ptr', 'ptr', 'u32'], returns: 'ptr' },
@@ -64,11 +69,11 @@ function ensure(): boolean {
     cf ??= openCf()
     io ??= openIo()
     const buf = Buffer.from('Energy Model\0')
-    group = cf.symbols.CFStringCreateWithCString(null, ptr(buf), UTF8)
-    const channels = io.symbols.IOReportCopyChannelsInGroup(group, null, 0n, 0n, 0n)
+    group = asPtr(cf.symbols.CFStringCreateWithCString(null, ptr(buf), UTF8))
+    const channels = asPtr(io.symbols.IOReportCopyChannelsInGroup(group, null, 0n, 0n, 0n))
     if (!channels) throw new Error('no Energy Model channels')
     const subOut = new BigUint64Array(1)
-    const sub = io.symbols.IOReportCreateSubscription(null, channels, ptr(subOut), 0n, null)
+    const sub = asPtr(io.symbols.IOReportCreateSubscription(null, channels, ptr(subOut), 0n, null))
     if (!sub || !subOut[0]) throw new Error('IOReport subscription failed')
     subscription = sub
     // The out-parameter is a raw address. bun accepts it as a pointer at runtime.
@@ -88,10 +93,10 @@ export function readEnergy(): EnergyNj | null {
   const core = cf
   const cb = new JSCallback(
     (_block: Pointer, channel: Pointer) => {
-      const name = cstr(core, lib.symbols.IOReportChannelGetChannelName(channel))
+      const name = cstr(core, asPtr(lib.symbols.IOReportChannelGetChannelName(channel)))
       const key = CHANNELS[name]
       if (!key) return 0
-      const unit = cstr(core, lib.symbols.IOReportChannelGetUnitLabel(channel))
+      const unit = cstr(core, asPtr(lib.symbols.IOReportChannelGetUnitLabel(channel)))
       const raw = lib.symbols.IOReportSimpleGetIntegerValue(channel, 0)
       const nj = toNanojoules(raw, unit)
       if (nj !== null) found[key] = nj

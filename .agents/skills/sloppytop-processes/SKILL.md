@@ -1,13 +1,13 @@
 ---
 name: sloppytop-processes
-description: List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, and phys_footprint_bytes is the physical footprint when the rusage read succeeds. On Linux, cgroup is the cgroup2 path. Run `sloppytop processes --help` for usage details.
+description: List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, phys_footprint_bytes is the physical footprint when the rusage read succeeds, idle_wakeups_per_s is the package-idle wakeup rate, and owning_app is set when the executable is inside an .app bundle. On Linux, cgroup is the cgroup2 path. Run `sloppytop processes --help` for usage details.
 requires_bin: sloppytop
 command: sloppytop processes
 ---
 
 # sloppytop processes
 
-List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, and phys_footprint_bytes is the physical footprint when the rusage read succeeds. On Linux, cgroup is the cgroup2 path.
+List processes with regex filtering and column sorting. On macOS, gpu_time_ms is GPU time accrued during the sample window when an AGX client was present, phys_footprint_bytes is the physical footprint when the rusage read succeeds, idle_wakeups_per_s is the package-idle wakeup rate, and owning_app is set when the executable is inside an .app bundle. On Linux, cgroup is the cgroup2 path.
 
 ## Options
 

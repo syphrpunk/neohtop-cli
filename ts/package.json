@@ -1,6 +1,6 @@
 {
   "name": "sloppytop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent-friendly system monitor CLI — TypeScript port of the Sloppytop TUI, built on incur",
   "license": "MIT",
   "author": "DK (syphrpunk)",
@@ -17,10 +17,11 @@
     "test": "bun test"
   },
   "dependencies": {
-    "incur": "^0.5.1"
+    "@opentui/core": "0.6.8",
+    "incur": "0.7.1"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.7.0"
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2"
   }
 }

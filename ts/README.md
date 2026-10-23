@@ -77,7 +77,7 @@ Compiled release binaries embed incur's update metadata: `sloppytop --update` ch
 | Reporting | ✅ `report` (hourly aggregates, top consumers, anomaly flags) + braille sparkline charts (port of `cli/view/sparkline.go`) |
 | Self-update | ✅ `--update` via incur's GitHub-release provider (compiled binaries only) |
 | Sparklines | ✅ `ts/src/view/sparkline.ts` — same 5-level braille mapping as the Go TUI |
-| TUI | ⬜ planned via [OpenTUI](https://github.com/sst/opentui) (low priority) |
+| TUI | ✅ `sloppytop tui` on OpenTUI: each probe in its own labeled rows (bordered cpu, mem, disk, net, and the other probes that returned a reading, when the terminal is wide; one reading per row; per-core sparklines in cpu), ruled process table, footer, and theme colors, plus on-demand env, files, connections, listen, and hardware, history, report, the probe log, one-shot record, probe switches, and the metrics listener. The compiled release binary includes this screen. The release does not upload `sloppytop-cli`. `just build` still writes that binary locally. |
 
 All low-level access uses native bun (`bun:ffi` `dlopen` on `libSystem.B.dylib`) — zero added dependencies beyond incur.
 

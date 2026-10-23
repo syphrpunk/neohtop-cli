@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readPhysFootprint } from './darwin_ffi.ts'
+import { readIdleWakeups, readPhysFootprint } from './darwin_ffi.ts'
 
 describe('readPhysFootprint', () => {
   test('reads the uint64 at offset 72, including a measured zero', () => {
@@ -18,5 +18,23 @@ describe('readPhysFootprint', () => {
     const view = new DataView(buf)
     view.setBigUint64(72, BigInt(Number.MAX_SAFE_INTEGER) + 1n, true)
     expect(readPhysFootprint(view)).toBeUndefined()
+  })
+})
+
+describe('readIdleWakeups', () => {
+  test('reads the uint64 at offset 32, including a measured zero', () => {
+    const buf = new ArrayBuffer(160)
+    const view = new DataView(buf)
+    view.setBigUint64(32, 7n, true)
+    expect(readIdleWakeups(view)).toBe(7)
+    view.setBigUint64(32, 0n, true)
+    expect(readIdleWakeups(view)).toBe(0)
+  })
+
+  test('a short buffer or an unsafe integer is omitted', () => {
+    expect(readIdleWakeups(new DataView(new ArrayBuffer(32)))).toBeUndefined()
+    const view = new DataView(new ArrayBuffer(40))
+    view.setBigUint64(32, BigInt(Number.MAX_SAFE_INTEGER) + 1n, true)
+    expect(readIdleWakeups(view)).toBeUndefined()
   })
 })

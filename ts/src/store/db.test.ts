@@ -112,8 +112,19 @@ describe('metrics store', () => {
             read_iops: 1.5,
             write_iops: 0,
             read_latency_ms: 0.2,
+            read_request_bytes: 4096,
           },
         ],
+        temperatures: [{ name: 'soc', celsius: 0 }],
+        fans: [{ name: 'fan1', rpm: 1200 }],
+        thermal_state: 'nominal',
+        memory_wired_bytes: 10,
+        memory_compressed_bytes: 0,
+        memory_app_bytes: 20,
+        memory_cached_bytes: 30,
+        pageins_per_s: 1.5,
+        pageouts_per_s: 0,
+        cpu_core_kinds: ['performance', 'efficiency'],
       },
       [],
       { processLimit: 1, retentionDays: 30 },
@@ -136,10 +147,20 @@ describe('metrics store', () => {
         read_iops: 1.5,
         write_iops: 0,
         read_latency_ms: 0.2,
+        read_request_bytes: 4096,
       },
     ])
+    expect(rich.temperatures).toEqual([{ name: 'soc', celsius: 0 }])
+    expect(rich.fans).toEqual([{ name: 'fan1', rpm: 1200 }])
+    expect(rich.thermal_state).toBe('nominal')
+    expect(rich.memory_compressed_bytes).toBe(0)
+    expect(rich.pageouts_per_s).toBe(0)
+    expect(rich.cpu_core_kinds).toEqual(['performance', 'efficiency'])
     expect(plain).not.toHaveProperty('cpu_power_watts')
     expect(plain).not.toHaveProperty('disk_devices')
+    expect(plain).not.toHaveProperty('temperatures')
+    expect(plain).not.toHaveProperty('memory_app_bytes')
+    expect(plain).not.toHaveProperty('thermal_state')
     db.close()
   })
 
@@ -179,6 +200,9 @@ describe('metrics store', () => {
     expect(names).toContain('memory_pressure_level')
     expect(names).toContain('cpu_power_watts')
     expect(names).toContain('disk_devices')
+    expect(names).toContain('temperatures')
+    expect(names).toContain('pageins_per_s')
+    expect(names).toContain('cpu_core_kinds')
     insertSample(
       db,
       new Date().toISOString(),

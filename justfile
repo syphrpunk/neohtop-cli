@@ -41,6 +41,10 @@ ts-setup:
 ts *args:
     cd ts && bun run src/index.ts {{args}}
 
+# Same command as ./st and ./sloppytop: this checkout's TypeScript CLI
+st *args:
+    ./st {{args}}
+
 # Type-check the TS port
 ts-check:
     cd ts && bunx tsc --noEmit
@@ -52,6 +56,10 @@ ts-test:
 # Compile the TS CLI to a standalone binary (ts/dist/sloppytop)
 ts-compile:
     cd ts && bun build --compile --minify src/index.ts --outfile dist/sloppytop
+
+# Quit-check the compiled screen. Uses a temp config dir and does not print the frame.
+ts-smoke:
+    python3 ts/smoke-tui.py ts/dist/sloppytop
 
 # Note: cross-compiling (--target=bun-<os>-<arch>) fails on bun canary —
 # cross-target runtimes aren't downloadable for canary versions. Release

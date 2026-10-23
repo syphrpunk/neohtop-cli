@@ -5,7 +5,10 @@ import { existsSync, readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { hostname, release } from 'node:os'
 import { parseCgroupPath } from './cgroup.ts'
 import { parseDiskstats } from './disk.ts'
-import type { CoreTicks, PlatformSample, ProcessDetail, RawProc } from './types.ts'
+import { memoryFromMeminfo, pagingFromVmstat } from './memory.ts'
+import { flagOn, type CollectFlags } from './probes.ts'
+import { parseGpuBusyPercent, parseGpuMemoryBytes, parseHwmonInput } from './sensors.ts'
+import type { CoreTicks, FanReading, GpuActivity, PlatformSample, ProcessDetail, RawProc, TemperatureReading } from './types.ts'
 
 const CLK_TCK = 100 // USER_HZ — 100 on every mainstream Linux
 const PAGE_SIZE = 4096
@@ -141,15 +144,112 @@ export function parseLinuxBattery(
   return { chargePercent, charging: status.trim().toLowerCase() === 'charging' }
 }
 
-function collectMem(): { total: number; used: number; free: number } {
-  const kv: Record<string, number> = {}
-  for (const line of readProc('meminfo').split('\n')) {
-    const m = line.match(/^(\w+):\s+(\d+) kB/)
-    if (m) kv[m[1]!] = Number(m[2]) * 1024
+function collectMem() {
+  return memoryFromMeminfo(readProc('meminfo'))
+}
+
+function collectPaging() {
+  try {
+    const pages = pagingFromVmstat(readProc('vmstat'), PAGE_SIZE)
+    return hasCounter(pages) ? pages : undefined
+  } catch {
+    return
   }
-  const total = kv['MemTotal'] ?? 0
-  const available = kv['MemAvailable'] ?? kv['MemFree'] ?? 0
-  return { total, used: total - available, free: kv['MemFree'] ?? 0 }
+}
+
+function hasCounter(pages: {
+  pageins?: number
+  pageouts?: number
+  compressions?: number
+  decompressions?: number
+}): boolean {
+  return (
+    pages.pageins !== undefined ||
+    pages.pageouts !== undefined ||
+    pages.compressions !== undefined ||
+    pages.decompressions !== undefined
+  )
+}
+
+function readText(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return
+  }
+}
+
+/** `/sys/class/hwmon` temperatures are millidegrees. Fan inputs are rpm. */
+function collectHwmon(): { temperatures?: TemperatureReading[]; fans?: FanReading[] } {
+  const root = '/sys/class/hwmon'
+  if (!existsSync(root)) return {}
+  const temperatures: TemperatureReading[] = []
+  const fans: FanReading[] = []
+  let dirs: string[]
+  try {
+    dirs = readdirSync(root)
+  } catch {
+    return {}
+  }
+  for (const dir of dirs.sort()) {
+    if (!/^hwmon\d+$/.test(dir)) continue
+    const base = `${root}/${dir}`
+    const chip = readText(`${base}/name`)?.trim() || dir
+    let files: string[]
+    try {
+      files = readdirSync(base)
+    } catch {
+      continue
+    }
+    for (const file of files) {
+      if (!/^(?:temp|fan)\d+_input$/.test(file)) continue
+      const input = readText(`${base}/${file}`)
+      if (input === undefined) continue
+      const label = readText(`${base}/${file.replace(/_input$/, '_label')}`)
+      const parsed = parseHwmonInput({ chip, key: file, input, ...(label !== undefined ? { label } : {}) })
+      if (!parsed) continue
+      if (parsed.kind === 'temp') temperatures.push(parsed.reading)
+      else fans.push(parsed.reading)
+    }
+  }
+  return {
+    ...(temperatures.length > 0 ? { temperatures } : {}),
+    ...(fans.length > 0 ? { fans } : {}),
+  }
+}
+
+/**
+ * First DRM card that publishes a busy percent or VRAM-used file.
+ * No NVML. Per-process VRAM is not read.
+ */
+function collectDrm(): GpuActivity | undefined {
+  const root = '/sys/class/drm'
+  if (!existsSync(root)) return
+  let cards: string[]
+  try {
+    cards = readdirSync(root)
+      .filter((name) => /^card\d+$/.test(name))
+      .sort()
+  } catch {
+    return
+  }
+  for (const card of cards) {
+    const dev = `${root}/${card}/device`
+    const busy = parseMaybe(readText(`${dev}/gpu_busy_percent`), parseGpuBusyPercent)
+    const memory = parseMaybe(readText(`${dev}/mem_info_vram_used`), parseGpuMemoryBytes)
+    if (busy === undefined && memory === undefined) continue
+    return {
+      ...(busy !== undefined ? { devicePercent: busy } : {}),
+      ...(memory !== undefined ? { memoryBytes: memory } : {}),
+    }
+  }
+  return
+}
+
+function parseMaybe<T>(text: string | undefined, parse: (value: string) => T | null): T | undefined {
+  if (text === undefined) return
+  const parsed = parse(text)
+  return parsed === null ? undefined : parsed
 }
 
 function collectNet(): { rx: number; tx: number } {
@@ -234,19 +334,22 @@ function cpuBrand(): string {
   return m ? m[1]! : 'Unknown CPU'
 }
 
-export function collect(): PlatformSample {
+export function collect(flags?: CollectFlags): PlatformSample {
   const uptimeSecs = Math.floor(Number(readProc('uptime').split(' ')[0]))
   const load = readProc('loadavg').trim().split(/\s+/)
   const mem = collectMem()
   const net = collectNet()
   const disk = collectDisk()
-  const disks = collectDiskCounters()
+  const disks = flagOn(flags, 'diskDevices') ? collectDiskCounters() : undefined
   const cores = collectCoreTicks()
-  const swap = collectSwap()
-  const battery = collectBattery()
-  const psiCpu = collectPsi('cpu')
-  const psiIo = collectPsi('io')
-  const psiMemory = collectPsi('memory')
+  const swap = flagOn(flags, 'swap') ? collectSwap() : undefined
+  const battery = flagOn(flags, 'battery') ? collectBattery() : undefined
+  const psiCpu = flagOn(flags, 'pressure') ? collectPsi('cpu') : undefined
+  const psiIo = flagOn(flags, 'pressure') ? collectPsi('io') : undefined
+  const psiMemory = flagOn(flags, 'pressure') ? collectPsi('memory') : undefined
+  const pages = collectPaging()
+  const sensors = flagOn(flags, 'sensors') ? collectHwmon() : {}
+  const gpuActivity = flagOn(flags, 'gpu') ? collectDrm() : undefined
 
   return {
     cpuBrand: cpuBrand(),
@@ -255,6 +358,10 @@ export function collect(): PlatformSample {
     memoryTotal: mem.total,
     memoryUsed: mem.used,
     memoryFree: mem.free,
+    ...(mem.app !== undefined ? { memoryApp: mem.app } : {}),
+    ...(mem.cached !== undefined ? { memoryCached: mem.cached } : {}),
+    ...(mem.compressed !== undefined ? { memoryCompressed: mem.compressed } : {}),
+    ...(pages ? { pageCounters: pages } : {}),
     netRxTotal: net.rx,
     netTxTotal: net.tx,
     diskTotal: disk.total,
@@ -274,6 +381,9 @@ export function collect(): PlatformSample {
     ...(psiIo !== undefined ? { psiIoSomeAvg10: psiIo } : {}),
     ...(psiMemory !== undefined ? { psiMemorySomeAvg10: psiMemory } : {}),
     ...(disks ? { disks } : {}),
+    ...(sensors.temperatures ? { temperatures: sensors.temperatures } : {}),
+    ...(sensors.fans ? { fans: sensors.fans } : {}),
+    ...(gpuActivity ? { gpuActivity } : {}),
   }
 }
 

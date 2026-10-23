@@ -89,4 +89,6 @@ sqlite3 -column -header "$DB" "
   WHERE p.name LIKE '%Hermes%' ORDER BY s.at"
 ```
 
+Nullable columns added onto that table include swap, battery, PSI, memory pressure, package watts, and `disk_devices` (JSON). When a later sample measured them, it may also have `temperatures`, `fans`, `thermal_state`, memory composition (`memory_wired_bytes`, `memory_compressed_bytes`, `memory_app_bytes`, `memory_cached_bytes`), page rates (`pageins_per_s`, `pageouts_per_s`, `compressions_per_s`, `decompressions_per_s`), and `cpu_core_kinds`. A missing reading is SQL NULL. A measured 0 is stored. `thermal_state` is the coarse macOS thermal state, not a temperature limit. `idle_wakeups_per_s` and `owning_app` are live process fields and are not stored.
+
 Gotchas: `at` is TEXT — string comparison works because it's ISO-8601 UTC. Retention pruning cascades `process_samples` deletes via FK, so a process absent from history may simply predate the retention window.
